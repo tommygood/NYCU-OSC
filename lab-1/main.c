@@ -1,8 +1,6 @@
 /* Lab 1: Hello World - OrangePi RV2 bare-metal shell */
 
 extern void uart_init(void);
-extern void uart_debug_regs(void);
-extern void uart_loopback_test(void);
 extern char uart_getc(void);
 extern void uart_putc(char c);
 extern void uart_puts(const char *s);
@@ -103,8 +101,6 @@ void start_kernel(void) {
     uart_init();
     uart_puts("\r\nOSC2026 Lab 1 - OrangePi RV2\r\n"
               "Type 'help' for available commands.\r\n");
-    uart_debug_regs();
-    uart_loopback_test();
 
     char buf[128];
     int pos;
