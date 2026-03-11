@@ -31,7 +31,7 @@ void uart_init(void) {
 char uart_getc(void) {
     while (!(*UART_LSR & 0x01))
         ;
-    char c = (char)(*UART_RBR & 0xFF);
+    char c = *UART_RBR;
     return (c == '\r') ? '\n' : c;
 }
 
