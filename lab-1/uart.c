@@ -17,6 +17,9 @@
  * QEMU uses ns16550a at 0x10000000, 1-byte stride, byte access.
  */
 
+#define LSR_DR  (1u << 0)
+#define LSR_THRE   (1u << 5)   /* TDRQ: TX holding register ready */
+
 #ifdef QEMU
 
 #define UART_RBR   ((volatile unsigned char *)(0x10000000UL + 0x00))
@@ -24,7 +27,7 @@
 #define UART_LSR   ((volatile unsigned char *)(0x10000000UL + 0x05))
 
 char uart_getc(void) {
-    while (!(*UART_LSR & 0x01))
+    while (!(*UART_LSR & LSR_DR))
         ;
     char c = *UART_RBR;
     return (c == '\r') ? '\n' : c;
@@ -42,7 +45,7 @@ extern void uart_hex(unsigned long h);
 #define UART_LSR   ((volatile unsigned int *)(0xD4017000UL + 0x14))
 
 char uart_getc(void) {
-    while (!(*UART_LSR & 0x01))
+    while (!(*UART_LSR & LSR_DR))
         ;
     char c = (char)(*UART_RBR & 0xFF);
     return (c == '\r') ? '\n' : c;
@@ -52,7 +55,6 @@ char uart_getc(void) {
 
 /* ── common TX path (direct MMIO works from S-mode on K1) ─────────────── */
 
-#define LSR_THRE   (1u << 5)   /* TDRQ: TX holding register ready */
 
 void uart_putc(char c) {
     if (c == '\n') {
@@ -62,7 +64,7 @@ void uart_putc(char c) {
     }
     while (!(*UART_LSR & LSR_THRE))
         ;
-    *UART_THR = (unsigned int)(unsigned char)c;
+    *UART_THR = (unsigned char)c;
 }
 
 void uart_puts(const char *s) {
