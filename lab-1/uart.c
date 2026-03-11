@@ -58,9 +58,11 @@ char uart_getc(void) {
 
 void uart_putc(char c) {
     if (c == '\n') {
+        /*
         while (!(*UART_LSR & LSR_THRE))
             ;
         *UART_THR = '\r';
+*/
     }
     while (!(*UART_LSR & LSR_THRE))
         ;
@@ -76,6 +78,6 @@ void uart_hex(unsigned long h) {
     uart_puts("0x");
     for (int shift = 60; shift >= 0; shift -= 4) {
         unsigned long nibble = (h >> shift) & 0xf;
-        uart_putc((char)(nibble + (nibble > 9 ? 0x57 : '0')));
+        uart_putc((char)(nibble + (nibble > 9 ? 0x57 : 0x30))); // 0x30 = '0', 0x61 = 'a'
     }
 }

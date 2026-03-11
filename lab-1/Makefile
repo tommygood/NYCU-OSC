@@ -5,7 +5,6 @@ OBJCOPY  = $(RISCV_GNU)-objcopy
 CFLAGS   = -mcmodel=medany -ffreestanding -nostdlib -g -Wall
 QEMU     ?= qemu-system-riscv64
 TARGET   = kernel
-DTB      = ../lab-0/x1_orangepi-rv2.dtb
 
 build: clean
 	$(CC) $(CFLAGS) -c *.S *.c
@@ -19,8 +18,7 @@ run: clean
 	$(QEMU) -M virt -m 4G -kernel $(TARGET).bin -nographic
 
 fit: build
-	cp $(DTB) x1_orangepi-rv2.dtb
 	mkimage -f kernel.its $(TARGET).fit
 
 clean:
-	rm -f $(TARGET).bin $(TARGET).elf $(TARGET).fit *.o x1_orangepi-rv2.dtb
+	rm -f $(TARGET).bin $(TARGET).elf $(TARGET).fit *.o

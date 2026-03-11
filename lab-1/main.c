@@ -112,10 +112,10 @@ void start_kernel(void) {
 
             if (c == '\n') {          /* Enter (uart_getc converts \r→\n) */
                 uart_puts("\r\n");
-                buf[pos] = '\0';
+                buf[pos] = '\0'; // add a null terminator at the end to compare if strs are equal
                 dispatch(buf);
                 break;
-            } else if (c == '\b' || c == 0x7f) {   /* Backspace / DEL */
+            } else if (c == 0x7f) {   /* Backspace */
                 if (pos > 0) {
                     pos--;
                     uart_putc('\b');
