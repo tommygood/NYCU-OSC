@@ -1,6 +1,5 @@
 /* Lab 1: Hello World - OrangePi RV2 bare-metal shell */
 
-extern void uart_init(void);
 extern char uart_getc(void);
 extern void uart_putc(char c);
 extern void uart_puts(const char *s);
@@ -98,7 +97,6 @@ static void dispatch(char *cmd) {
 }
 
 void start_kernel(void) {
-    uart_init();
     uart_puts("\r\nOSC2026 Lab 1 - OrangePi RV2\r\n"
               "Type 'help' for available commands.\r\n");
 
