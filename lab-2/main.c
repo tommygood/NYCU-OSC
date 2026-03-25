@@ -13,6 +13,8 @@ extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_init(void);
 extern void uart_set_base(unsigned long base);
+extern void uart_putdec(unsigned long n);
+extern unsigned long uart_read_u32_le(void);
 extern void uart_flush_rx(void);
 extern void jump_to_entry(unsigned long entry, unsigned long hart_id,
                           unsigned long dtb_ptr);
@@ -20,9 +22,7 @@ extern void jump_to_entry(unsigned long entry, unsigned long hart_id,
 /* ── Types ───────────────────────────────────────────────────────────────── */
 typedef unsigned char      uint8_t;
 typedef unsigned int       uint32_t;
-typedef unsigned long long uint64_t;
 typedef unsigned long      size_t;
-typedef unsigned long      uintptr_t;
 
 /* ── Globals (saved by start.S after BSS is zeroed) ─────────────────────── */
 unsigned long saved_hart_id;      /* written by start.S */
@@ -30,226 +30,15 @@ unsigned long saved_hart_id;      /* written by start.S */
 static const void *g_fdt    = 0;  /* DTB pointer passed by OpenSBI     */
 static const void *g_initrd = 0;  /* initrd base from DTB /chosen node  */
 
-/* ── UART helpers ────────────────────────────────────────────────────────── */
-static void uart_putdec(unsigned long n) {
-    char buf[20];
-    int i = 0;
-    if (n == 0) { uart_putc('0'); return; }
-    while (n) { buf[i++] = '0' + (int)(n % 10); n /= 10; }
-    while (i--) uart_putc(buf[i]);
-}
 
-/* Read one little-endian 32-bit word from UART (for bootloader protocol). */
-static unsigned long uart_read_u32_le(void) {
-    unsigned long r = 0;
-    r |= (unsigned long)(unsigned char)uart_getc() <<  0;
-    r |= (unsigned long)(unsigned char)uart_getc() <<  8;
-    r |= (unsigned long)(unsigned char)uart_getc() << 16;
-    r |= (unsigned long)(unsigned char)uart_getc() << 24;
-    return r;
-}
+/* ── String helpers (string.c) ───────────────────────────────────────────── */
+extern size_t k_strlen(const char *s);
+extern int    k_strcmp(const char *a, const char *b);
+extern int    k_strncmp(const char *a, const char *b, size_t n);
 
-/* ── String helpers ──────────────────────────────────────────────────────── */
-static size_t k_strlen(const char *s) {
-    size_t n = 0;
-    while (s[n]) n++;
-    return n;
-}
-
-static int k_strcmp(const char *a, const char *b) {
-    while (*a && *a == *b) { a++; b++; }
-    return (unsigned char)*a - (unsigned char)*b;
-}
-
-static int k_strncmp(const char *a, const char *b, size_t n) {
-    while (n-- && *a && *a == *b) { a++; b++; }
-    return n == (size_t)-1 ? 0 : (unsigned char)*a - (unsigned char)*b;
-}
-
-/* ── FDT (flattened devicetree) parser ───────────────────────────────────── */
-#define FDT_BEGIN_NODE  0x00000001
-#define FDT_END_NODE    0x00000002
-#define FDT_PROP        0x00000003
-#define FDT_NOP         0x00000004
-#define FDT_END         0x00000009
-#define FDT_MAGIC       0xd00dfeed
-
-struct fdt_header {
-    uint32_t magic;
-    uint32_t totalsize;
-    uint32_t off_dt_struct;
-    uint32_t off_dt_strings;
-    uint32_t off_mem_rsvmap;
-    uint32_t version;
-    uint32_t last_comp_version;
-    uint32_t boot_cpuid_phys;
-    uint32_t size_dt_strings;
-    uint32_t size_dt_struct;
-};
-
-static uint32_t bswap32(uint32_t x) {
-    return ((x & 0xff000000u) >> 24) | ((x & 0x00ff0000u) >>  8)
-         | ((x & 0x0000ff00u) <<  8) | ((x & 0x000000ffu) << 24);
-}
-
-static uint64_t bswap64(uint64_t x) {
-    return ((uint64_t)bswap32((uint32_t)(x & 0xffffffffu)) << 32)
-         | bswap32((uint32_t)(x >> 32));
-}
-
-static const void *align_up_ptr(const void *ptr, size_t align) {
-    return (const void *)(((uintptr_t)ptr + align - 1) & ~(align - 1));
-}
-
-/* Match a DTB node name (possibly "foo@addr") against a plain name "foo". */
-static int node_name_match(const char *node_name, const char *comp) {
-    if (k_strcmp(node_name, comp) == 0) return 1;
-    size_t len = k_strlen(comp);
-    return k_strncmp(node_name, comp, len) == 0 && node_name[len] == '@';
-}
-
-/*
- * fdt_path_offset – locate a node by path, returns byte offset from fdt base.
- * Returns -1 on error.
- */
-static int fdt_path_offset(const void *fdt, const char *path) {
-    const struct fdt_header *hdr = (const struct fdt_header *)fdt;
-    if (bswap32(hdr->magic) != FDT_MAGIC)
-        return -1;
-
-    /* split path into components (work on a stack buffer, not a heap) */
-    char buf[256];
-    size_t plen = k_strlen(path);
-    if (plen >= sizeof(buf)) return -1;
-    for (size_t i = 0; i <= plen; i++) buf[i] = path[i];
-
-    char *comps[32];
-    int ncomp = 0;
-    char *start = (buf[0] == '/') ? buf + 1 : buf;
-    char *p = start;
-    /* tokenise by '/' */
-    while (*p && ncomp < 32) {
-        comps[ncomp++] = p;
-        while (*p && *p != '/') p++;
-        if (*p == '/') *p++ = '\0';
-    }
-
-    const uint8_t *cur =
-        (const uint8_t *)fdt + bswap32(hdr->off_dt_struct);
-    int depth = 0, matched = 0;
-
-    while (1) {
-        const uint8_t *tp = cur;
-        uint32_t token = bswap32(*(const uint32_t *)cur);
-        cur += 4;
-
-        if (token == FDT_BEGIN_NODE) {
-            const char *name = (const char *)cur;
-            cur = (const uint8_t *)align_up_ptr(
-                      cur + k_strlen(name) + 1, 4);
-            if (depth != 0 && depth == matched + 1 &&
-                node_name_match(name, comps[matched])) {
-                matched++;
-                if (matched == ncomp)
-                    return (int)(tp - (const uint8_t *)fdt);
-            }
-            depth++;
-        } else if (token == FDT_END_NODE) {
-            depth--;
-            if (matched > depth) matched = depth;
-        } else if (token == FDT_PROP) {
-            uint32_t len = bswap32(*(const uint32_t *)cur); cur += 4;
-            cur += 4;  /* skip nameoff */
-            cur = (const uint8_t *)align_up_ptr(cur + len, 4);
-        } else if (token == FDT_NOP) {
-            /* skip */
-        } else { /* FDT_END */
-            return -1;
-        }
-    }
-}
-
-/*
- * fdt_getprop – retrieve a property value from the node at nodeoffset.
- * Returns pointer to raw big-endian data; sets *lenp to byte length.
- */
-static const void *fdt_getprop(const void *fdt, int nodeoffset,
-                                const char *name, int *lenp) {
-    const struct fdt_header *hdr = (const struct fdt_header *)fdt;
-    uint32_t strs_off = bswap32(hdr->off_dt_strings);
-
-    const uint8_t *cur = (const uint8_t *)fdt + nodeoffset;
-    if (bswap32(*(const uint32_t *)cur) != FDT_BEGIN_NODE) return 0;
-    cur += 4;
-    cur = (const uint8_t *)align_up_ptr(
-              cur + k_strlen((const char *)cur) + 1, 4);
-
-    int depth = 0;
-    while (1) {
-        uint32_t tok = bswap32(*(const uint32_t *)cur);
-        cur += 4;
-
-        if (tok == FDT_BEGIN_NODE) {
-            cur = (const uint8_t *)align_up_ptr(
-                      cur + k_strlen((const char *)cur) + 1, 4);
-            depth++;
-        } else if (tok == FDT_END_NODE) {
-            if (depth == 0) return 0;
-            depth--;
-        } else if (tok == FDT_PROP) {
-            uint32_t len     = bswap32(*(const uint32_t *)cur); cur += 4;
-            uint32_t nameoff = bswap32(*(const uint32_t *)cur); cur += 4;
-            const void *val  = cur;
-            cur = (const uint8_t *)align_up_ptr(cur + len, 4);
-            if (depth == 0) {
-                const char *pname =
-                    (const char *)fdt + strs_off + nameoff;
-                if (k_strcmp(pname, name) == 0) {
-                    if (lenp) *lenp = (int)len;
-                    return val;
-                }
-            }
-        } else if (tok == FDT_NOP) {
-            /* skip */
-        } else { /* FDT_END */
-            return 0;
-        }
-    }
-}
-
-/* ── DTB helpers ─────────────────────────────────────────────────────────── */
-
-/*
- * Read UART base address from /soc/serial reg property.
- * The reg property is: <addr_hi addr_lo size_hi size_lo> (big-endian u32s).
- */
-static unsigned long dtb_get_uart_base(const void *fdt) {
-    int off = fdt_path_offset(fdt, "/soc/serial");
-    if (off < 0) return 0;
-    int len;
-    const uint32_t *reg =
-        (const uint32_t *)fdt_getprop(fdt, off, "reg", &len);
-    if (!reg || len < 8) return 0;
-    unsigned long hi = bswap32(reg[0]);
-    unsigned long lo = bswap32(reg[1]);
-    return (hi << 32) | lo;
-}
-
-/*
- * Read initrd start address from /chosen linux,initrd-start.
- * May be 4 bytes (u32) or 8 bytes (u64), both big-endian.
- */
-static unsigned long dtb_get_initrd_start(const void *fdt) {
-    int off = fdt_path_offset(fdt, "/chosen");
-    if (off < 0) return 0;
-    int len;
-    const void *prop =
-        fdt_getprop(fdt, off, "linux,initrd-start", &len);
-    if (!prop) return 0;
-    if (len == 4) return bswap32(*(const uint32_t *)prop);
-    if (len == 8) return bswap64(*(const uint64_t *)prop);
-    return 0;
-}
+/* ── DTB helpers (dtb.c) ─────────────────────────────────────────────────── */
+extern unsigned long dtb_get_uart_base(const void *fdt);
+extern unsigned long dtb_get_initrd_start(const void *fdt);
 
 /* ── cpio (newc) parser ──────────────────────────────────────────────────── */
 struct cpio_t {
@@ -342,42 +131,10 @@ static void initrd_cat(const void *rd, const char *filename) {
     }
 }
 
-/* ── SBI interface ───────────────────────────────────────────────────────── */
-struct sbiret { long error; long value; };
-
-static struct sbiret sbi_ecall(int ext, int fid,
-                               unsigned long a0, unsigned long a1,
-                               unsigned long a2, unsigned long a3,
-                               unsigned long a4, unsigned long a5) {
-    struct sbiret ret;
-    register unsigned long _a0 asm("a0") = a0;
-    register unsigned long _a1 asm("a1") = a1;
-    register unsigned long _a2 asm("a2") = a2;
-    register unsigned long _a3 asm("a3") = a3;
-    register unsigned long _a4 asm("a4") = a4;
-    register unsigned long _a5 asm("a5") = a5;
-    register unsigned long  a6 asm("a6") = (unsigned long)fid;
-    register unsigned long  a7 asm("a7") = (unsigned long)ext;
-    asm volatile("ecall"
-                 : "+r"(_a0), "+r"(_a1)
-                 : "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5),
-                   "r"(a6), "r"(a7)
-                 : "memory");
-    ret.error = _a0;
-    ret.value = _a1;
-    return ret;
-}
-
-#define SBI_EXT_BASE  0x10
-static long sbi_get_spec_version(void) {
-    return sbi_ecall(SBI_EXT_BASE, 0, 0,0,0,0,0,0).value;
-}
-static long sbi_get_impl_id(void) {
-    return sbi_ecall(SBI_EXT_BASE, 1, 0,0,0,0,0,0).value;
-}
-static long sbi_get_impl_version(void) {
-    return sbi_ecall(SBI_EXT_BASE, 2, 0,0,0,0,0,0).value;
-}
+/* ── SBI interface (sbi.c) ───────────────────────────────────────────────── */
+extern long sbi_get_spec_version(void);
+extern long sbi_get_impl_id(void);
+extern long sbi_get_impl_version(void);
 
 /* ── Shell commands ──────────────────────────────────────────────────────── */
 

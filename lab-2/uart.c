@@ -113,6 +113,24 @@ void uart_init(void) {
 
 #endif  /* QEMU / K1 */
 
+/* Read one little-endian 32-bit word from UART (for bootloader protocol). */
+unsigned long uart_read_u32_le(void) {
+    unsigned long r = 0;
+    r |= (unsigned long)(unsigned char)uart_getc() <<  0;
+    r |= (unsigned long)(unsigned char)uart_getc() <<  8;
+    r |= (unsigned long)(unsigned char)uart_getc() << 16;
+    r |= (unsigned long)(unsigned char)uart_getc() << 24;
+    return r;
+}
+
+void uart_putdec(unsigned long n) {
+    char buf[20];
+    int i = 0;
+    if (n == 0) { uart_putc('0'); return; }
+    while (n) { buf[i++] = '0' + (int)(n % 10); n /= 10; }
+    while (i--) uart_putc(buf[i]);
+}
+
 void uart_puts(const char *s) {
     while (*s)
         uart_putc(*s++);
