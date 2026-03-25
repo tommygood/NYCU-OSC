@@ -394,7 +394,7 @@ static long sbi_get_impl_version(void) {
 
 static void cmd_help(void) {
     uart_puts("Commands:\r\n"
-              "  help          - this message-3\r\n"
+              "  help          - this message-6\r\n"
               "  hello         - Hello World\r\n"
               "  info          - SBI/system info\r\n"
               "  ls            - list initrd files\r\n"
@@ -438,7 +438,7 @@ static void cmd_cat(const char *arg) {
  *   [size bytes]     kernel binary
  */
 static void cmd_load(void) {
-    uart_puts("Waiting for kernel (send BOOT header qq)...\r\n");
+    uart_puts("Waiting for kernel (send BOOT header)...\r\n");
 
     unsigned long magic = uart_read_u32_le();
     if (magic != 0x544F4F42UL) {
@@ -532,34 +532,24 @@ static void shell_run(void) {
 void kernel_main(void *fdt) {
     g_fdt = fdt;
 
-    /* ── Initialize UART hardware first, before any output ── */
-    uart_init();
+    /* ── Parse DTB before any UART output ──────────────────────────────────
+     * OpenSBI already initialized UART hardware, so no uart_init() needed.
+     * Parse DTB first (pure memory reads, no UART required), then set the
+     * correct base address before the first uart_puts call.
+     */
+    unsigned long uart_base    = dtb_get_uart_base(fdt);
+    unsigned long initrd_start = dtb_get_initrd_start(fdt);
 
-    /* ── Basic Exercise 2: get UART base from devicetree ── */
-    unsigned long uart_base = dtb_get_uart_base(fdt);
-    if (uart_base) {
-        uart_set_base(uart_base);
-    }
+    if (uart_base)    uart_set_base(uart_base);
+    if (initrd_start) g_initrd = (const void *)initrd_start;
 
-    /* Separate our output from OpenSBI's with blank lines.
-     * We deliberately avoid escape sequences here: PTY mode collects all
-     * buffered bytes and delivers them to picocom at once, so screen-clear
-     * sequences interact badly with the terminal rendering. */
+    /* ── UART now has the correct base address ── */
     uart_puts("\r\n\r\n");
-
     uart_puts("OSC2026 Lab 2 - OrangePi RV2\r\n");
     uart_puts("DTB at "); uart_hex((unsigned long)fdt); uart_puts("\r\n");
+    uart_puts("UART base: "); uart_hex(uart_base); uart_puts("\r\n");
 
-    if (uart_base) {
-        uart_puts("UART base from DTB: "); uart_hex(uart_base); uart_puts("\r\n");
-    } else {
-        uart_puts("UART base: DTB parse failed, using default\r\n");
-    }
-
-    /* ── Basic Exercise 3: locate initrd from devicetree ── */
-    unsigned long initrd_start = dtb_get_initrd_start(fdt);
     if (initrd_start) {
-        g_initrd = (const void *)initrd_start;
         uart_puts("initrd at "); uart_hex(initrd_start); uart_puts("\r\n");
     } else {
         uart_puts("No initrd found in DTB\r\n");
