@@ -20,6 +20,8 @@ OrangePi RV2 example:
 import sys
 import struct
 import time
+import os
+import termios
 
 MAGIC = 0x544F4F42  # "BOOT"
 
@@ -39,11 +41,22 @@ def main():
 
     print(f"Sending {len(kernel_data)} bytes to {dev_path}...")
 
-    with open(dev_path, 'wb', buffering=0) as tty:
-        tty.write(header)
-        # Small delay between header and data helps slower boards
-        time.sleep(0.05)
-        tty.write(kernel_data)
+    fd = os.open(dev_path, os.O_WRONLY | os.O_NOCTTY)
+    try:
+        # Disable TTY output processing (OPOST/ONLCR) so binary data is
+        # transmitted byte-for-byte without 0x0A -> 0x0D 0x0A expansion.
+        try:
+            attrs = termios.tcgetattr(fd)
+            attrs[1] &= ~termios.OPOST   # clear OPOST in c_oflag
+            termios.tcsetattr(fd, termios.TCSAFLUSH, attrs)
+        except termios.error:
+            pass  # not a TTY (e.g. regular file), ignore
+
+        os.write(fd, header)
+        time.sleep(0.05)   # small gap between header and data
+        os.write(fd, kernel_data)
+    finally:
+        os.close(fd)
 
     print("Done.")
 

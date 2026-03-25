@@ -33,6 +33,12 @@ run-pty: clean initramfs
 	$(QEMU) -M virt -m 4G -kernel $(TARGET).bin \
 		-initrd initramfs.cpio -serial pty -display none -no-reboot
 
+# ── QEMU build only (no run) ──────────────────────────────────────────────
+build-qemu: clean initramfs
+	$(CC) $(CFLAGS) -DQEMU -c *.S *.c
+	$(LD) -T linker_qemu.ld -o $(TARGET).elf *.o
+	$(OBJCOPY) -O binary $(TARGET).elf $(TARGET).bin
+
 # ── initramfs ─────────────────────────────────────────────────────────────
 initramfs:
 	cd rootfs && find . | cpio -o -H newc > ../initramfs.cpio

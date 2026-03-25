@@ -26,6 +26,7 @@ char uart_getc(void) {
     volatile unsigned char *rbr = (volatile unsigned char *)(uart_base + 0x00);
     while (!(*lsr & LSR_DR))
         ;
+        //asm volatile("wfi");
     return *rbr;
 }
 
@@ -102,15 +103,30 @@ void uart_set_base(unsigned long base) {
     uart_base = base;
 }
 
+/* Discard all bytes currently waiting in the RX FIFO. */
+void uart_flush_rx(void) {
+#ifdef QEMU
+    volatile unsigned char *lsr = (volatile unsigned char *)(uart_base + 0x05);
+    volatile unsigned char *rbr = (volatile unsigned char *)(uart_base + 0x00);
+    while (*lsr & LSR_DR) (void)*rbr;
+#else
+    volatile unsigned int *lsr = (volatile unsigned int *)(uart_base + 0x14);
+    volatile unsigned int *rbr = (volatile unsigned int *)(uart_base + 0x00);
+    while (*lsr & LSR_DR) (void)*rbr;
+#endif
+}
+
 void uart_puts(const char *s) {
     while (*s)
         uart_putc(*s++);
 }
 
 void uart_hex(unsigned long h) {
+    uart_putc('[');
     uart_puts("0x");
     for (int shift = 60; shift >= 0; shift -= 4) {
         unsigned long nibble = (h >> shift) & 0xf;
         uart_putc((char)(nibble + (nibble > 9 ? 0x57 : 0x30)));
     }
+    uart_putc(']');
 }

@@ -13,6 +13,7 @@ extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_init(void);
 extern void uart_set_base(unsigned long base);
+extern void uart_flush_rx(void);
 extern void jump_to_entry(unsigned long entry, unsigned long hart_id,
                           unsigned long dtb_ptr);
 
@@ -330,7 +331,10 @@ static void initrd_cat(const void *rd, const char *filename) {
             const char *data =
                 (const char *)p +
                 align4((int)sizeof(struct cpio_t) + namesize);
-            for (int i = 0; i < filesize; i++) uart_putc(data[i]);
+            for (int i = 0; i < filesize; i++) {
+                if (data[i] == '\n') uart_putc('\r');
+                uart_putc(data[i]);
+            }
             return;
         }
         p += align4((int)sizeof(struct cpio_t) + namesize)
@@ -390,12 +394,12 @@ static long sbi_get_impl_version(void) {
 
 static void cmd_help(void) {
     uart_puts("Commands:\r\n"
-              "  help          – this message\r\n"
-              "  hello         – Hello World\r\n"
-              "  info          – SBI/system info\r\n"
-              "  ls            – list initrd files\r\n"
-              "  cat <file>    – print initrd file\r\n"
-              "  load          – receive kernel via UART and boot it\r\n");
+              "  help          - this message-3\r\n"
+              "  hello         - Hello World\r\n"
+              "  info          - SBI/system info\r\n"
+              "  ls            - list initrd files\r\n"
+              "  cat <file>    - print initrd file\r\n"
+              "  load          - receive kernel via UART and boot it\r\n");
 }
 
 static void cmd_hello(void) {
@@ -434,7 +438,7 @@ static void cmd_cat(const char *arg) {
  *   [size bytes]     kernel binary
  */
 static void cmd_load(void) {
-    uart_puts("Waiting for kernel (send BOOT header)...\r\n");
+    uart_puts("Waiting for kernel (send BOOT header qq)...\r\n");
 
     unsigned long magic = uart_read_u32_le();
     if (magic != 0x544F4F42UL) {
@@ -456,6 +460,8 @@ static void cmd_load(void) {
     uart_puts("Done. Jumping to 0x");
     uart_hex(LOAD_ADDR);
     uart_puts("\r\n");
+
+    uart_init();
 
     jump_to_entry(LOAD_ADDR, saved_hart_id, (unsigned long)g_fdt);
 
@@ -485,6 +491,8 @@ static void shell_run(void) {
 
     while (1) {
         uart_puts("\r\n$ ");
+        uart_flush_rx();   /* drain QEMU PTY loopback bytes that arrived
+                            * while the kernel was printing startup output */
         pos = 0;
 
         while (1) {
@@ -533,7 +541,13 @@ void kernel_main(void *fdt) {
         uart_set_base(uart_base);
     }
 
-    uart_puts("\r\nOSC2026 Lab 2 – OrangePi RV2\r\n");
+    /* Separate our output from OpenSBI's with blank lines.
+     * We deliberately avoid escape sequences here: PTY mode collects all
+     * buffered bytes and delivers them to picocom at once, so screen-clear
+     * sequences interact badly with the terminal rendering. */
+    uart_puts("\r\n\r\n");
+
+    uart_puts("OSC2026 Lab 2 - OrangePi RV2\r\n");
     uart_puts("DTB at "); uart_hex((unsigned long)fdt); uart_puts("\r\n");
 
     if (uart_base) {
