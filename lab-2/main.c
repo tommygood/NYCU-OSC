@@ -14,7 +14,6 @@ extern void uart_hex(unsigned long h);
 extern void uart_init(void);
 extern void uart_set_base(unsigned long base);
 extern void uart_putdec(unsigned long n);
-extern void uart_flush_rx(void);
 extern void jump_to_entry(unsigned long entry, unsigned long hart_id,
                           unsigned long dtb_ptr);
 
@@ -223,8 +222,7 @@ static void shell_run(void) {
 
     while (1) {
         uart_puts("\r\n$ ");
-        uart_flush_rx();   /* drain QEMU PTY loopback bytes that arrived
-                            * while the kernel was printing startup output */
+
         pos = 0;
 
         while (1) {

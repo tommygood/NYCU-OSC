@@ -28,7 +28,6 @@ extern void          uart_putdec(unsigned long n);
 extern void          uart_init(void);
 extern void          uart_set_base(unsigned long base);
 extern unsigned long uart_read_u32_le(void);
-extern void          uart_flush_rx(void);
 extern void          jump_to_entry(unsigned long entry, unsigned long hart_id,
                                    unsigned long dtb_ptr);
 extern unsigned long dtb_get_uart_base(const void *fdt);
@@ -50,7 +49,6 @@ void kernel_main(void *fdt) {
     uart_puts("\r\nUART Bootloader ready. Waiting for kernel (BOOT protocol)...\r\n");
 
     /* Flush once to clear any echo bytes from the startup message above. */
-    uart_flush_rx();
 
     while (1) {
         unsigned long magic = uart_read_u32_le();
