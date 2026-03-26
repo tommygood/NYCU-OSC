@@ -14,7 +14,6 @@ extern void uart_hex(unsigned long h);
 extern void uart_init(void);
 extern void uart_set_base(unsigned long base);
 extern void uart_putdec(unsigned long n);
-extern unsigned long uart_read_u32_le(void);
 extern void uart_flush_rx(void);
 extern void jump_to_entry(unsigned long entry, unsigned long hart_id,
                           unsigned long dtb_ptr);
@@ -138,25 +137,21 @@ extern long sbi_get_impl_version(void);
 
 /* ── Shell commands ──────────────────────────────────────────────────────── */
 
-/*
- * Bootloader staging address.
- * On QEMU  : 0x82000000  (2 MB above the bootloader at 0x80200000)
- * On board : 0x20000000  (512 MB above the bootloader at 0x00200000)
- */
+/* Resident UART bootloader address (set by start.S self-relocation). */
 #ifdef QEMU
-#define LOAD_ADDR 0x82000000UL
+# define RELOC_ADDR 0x84000000UL
 #else
-#define LOAD_ADDR 0x20000000UL
+# define RELOC_ADDR 0x04000000UL
 #endif
 
 static void cmd_help(void) {
     uart_puts("Commands:\r\n"
-              "  help          - this message-6\r\n"
+              "  help          - this message-1\r\n"
               "  hello         - Hello World\r\n"
               "  info          - SBI/system info\r\n"
               "  ls            - list initrd files\r\n"
               "  cat <file>    - print initrd file\r\n"
-              "  load          - receive kernel via UART and boot it\r\n");
+              "  bootloader    - jump back to resident UART bootloader\r\n");
 }
 
 static void cmd_hello(void) {
@@ -164,12 +159,16 @@ static void cmd_hello(void) {
 }
 
 static void cmd_info(void) {
+    /* Read current PC to confirm relocation: expect 0x84xxxxxx (QEMU RELOC_ADDR). */
+    unsigned long pc;
+    asm volatile("auipc %0, 0" : "=r"(pc));
+    uart_puts("Running at:    "); uart_hex(pc);                                    uart_puts("\r\n");
     uart_puts("SBI spec ver:  "); uart_hex((unsigned long)sbi_get_spec_version()); uart_puts("\r\n");
     uart_puts("SBI impl ID:   "); uart_hex((unsigned long)sbi_get_impl_id());      uart_puts("\r\n");
     uart_puts("SBI impl ver:  "); uart_hex((unsigned long)sbi_get_impl_version()); uart_puts("\r\n");
-    uart_puts("DTB at:        "); uart_hex((unsigned long)g_fdt);           uart_puts("\r\n");
+    uart_puts("DTB at:        "); uart_hex((unsigned long)g_fdt);                  uart_puts("\r\n");
     if (g_initrd) {
-        uart_puts("initrd at:     "); uart_hex((unsigned long)g_initrd);   uart_puts("\r\n");
+        uart_puts("initrd at:     "); uart_hex((unsigned long)g_initrd);           uart_puts("\r\n");
     } else {
         uart_puts("initrd:        not found\r\n");
     }
@@ -187,42 +186,18 @@ static void cmd_cat(const char *arg) {
 }
 
 /*
- * cmd_load – receive a kernel image over UART and jump to it.
+ * cmd_bootloader – jump back to the resident UART bootloader at RELOC_ADDR.
  *
- * Protocol (little-endian):
- *   [4 bytes] magic  = 0x544F4F42  ("BOOT")
- *   [4 bytes] size   = byte count of the kernel binary
- *   [size bytes]     kernel binary
+ * The bootloader's code is still intact at RELOC_ADDR (the kernel only
+ * occupies LOAD_ADDR+).  Jumping there re-runs _start → BSS clear →
+ * bootloader_main, ready to receive the next kernel over UART.
  */
-static void cmd_load(void) {
-    uart_puts("Waiting for kernel (send BOOT header)...\r\n");
-
-    unsigned long magic = uart_read_u32_le();
-    if (magic != 0x544F4F42UL) {
-        uart_puts("Bad magic, aborting\r\n");
-        return;
-    }
-    unsigned long size = uart_read_u32_le();
-
-    uart_puts("Receiving ");
-    uart_putdec(size);
-    uart_puts(" bytes to 0x");
-    uart_hex(LOAD_ADDR);
+static void cmd_bootloader(void) {
+    uart_puts("Jumping to bootloader at ");
+    uart_hex(RELOC_ADDR);
     uart_puts("...\r\n");
-
-    uint8_t *dst = (uint8_t *)LOAD_ADDR;
-    for (unsigned long i = 0; i < size; i++)
-        dst[i] = (uint8_t)uart_getc();
-
-    uart_puts("Done. Jumping to 0x");
-    uart_hex(LOAD_ADDR);
-    uart_puts("\r\n");
-
     uart_init();
-
-    jump_to_entry(LOAD_ADDR, saved_hart_id, (unsigned long)g_fdt);
-
-    /* should never reach here */
+    jump_to_entry(RELOC_ADDR, saved_hart_id, (unsigned long)g_fdt);
     while (1) {}
 }
 
@@ -233,8 +208,8 @@ static void dispatch(char *cmd, char *arg) {
     else if (k_strcmp(cmd, "hello") == 0) cmd_hello();
     else if (k_strcmp(cmd, "info")  == 0) cmd_info();
     else if (k_strcmp(cmd, "ls")    == 0) cmd_ls();
-    else if (k_strcmp(cmd, "cat")   == 0) cmd_cat(arg);
-    else if (k_strcmp(cmd, "load")  == 0) cmd_load();
+    else if (k_strcmp(cmd, "cat")        == 0) cmd_cat(arg);
+    else if (k_strcmp(cmd, "bootloader") == 0) cmd_bootloader();
     else if (cmd[0] != '\0') {
         uart_puts("Unknown: ");
         uart_puts(cmd);

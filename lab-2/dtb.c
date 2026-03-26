@@ -170,20 +170,39 @@ static const void *fdt_getprop(const void *fdt, int nodeoffset,
 
 /* ── Public DTB helpers ───────────────────────────────────────────────────── */
 
+/* Read #address-cells from a node; defaults to 2 if absent. */
+static int fdt_address_cells(const void *fdt, int nodeoffset) {
+    int len;
+    const uint32_t *p = (const uint32_t *)fdt_getprop(
+                            fdt, nodeoffset, "#address-cells", &len);
+    if (!p || len != 4) return 2;
+    return (int)bswap32(*p);
+}
+
 /*
  * Read UART base address from /soc/serial reg property.
- * The reg property is: <addr_hi addr_lo size_hi size_lo> (big-endian u32s).
+ * Reads #address-cells from /soc to handle both 32-bit (QEMU: cells=1)
+ * and 64-bit (OrangePi RV2: cells=2) address encodings.
  */
 unsigned long dtb_get_uart_base(const void *fdt) {
+    int soc_off = fdt_path_offset(fdt, "/soc");
+    int addr_cells = (soc_off >= 0) ? fdt_address_cells(fdt, soc_off) : 2;
+
     int off = fdt_path_offset(fdt, "/soc/serial");
     if (off < 0) return 0;
     int len;
     const uint32_t *reg =
         (const uint32_t *)fdt_getprop(fdt, off, "reg", &len);
-    if (!reg || len < 8) return 0;
-    unsigned long hi = bswap32(reg[0]);
-    unsigned long lo = bswap32(reg[1]);
-    return (hi << 32) | lo;
+    if (!reg) return 0;
+
+    if (addr_cells == 1) {
+        if (len < 4) return 0;
+        return (unsigned long)bswap32(reg[0]);
+    } else {
+        if (len < 8) return 0;
+        return ((unsigned long)bswap32(reg[0]) << 32)
+             | (unsigned long)bswap32(reg[1]);
+    }
 }
 
 /*
