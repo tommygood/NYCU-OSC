@@ -181,32 +181,50 @@ static void cmd_cat(const char *arg) {
 }
 
 static void cmd_mmtest(void) {
-    uart_puts("Testing page allocation...\r\n");
-    void *p1 = alloc(4000);
-    void *p2 = alloc(8000);
-    void *p3 = alloc(4000);
-    void *p4 = alloc(4000);
-    free(p1); free(p2); free(p3); free(p4);
+    uart_puts("Testing memory allocation...\r\n");
+    char *ptr1 = (char *)alloc(4000);
+    char *ptr2 = (char *)alloc(8000);
+    char *ptr3 = (char *)alloc(4000);
+    char *ptr4 = (char *)alloc(4000);
 
+    free(ptr1);
+    free(ptr2);
+    free(ptr3);
+    free(ptr4);
+
+    /* Test kmalloc */
     uart_puts("Testing dynamic allocator...\r\n");
-    void *k1 = alloc(16), *k2 = alloc(32), *k3 = alloc(64), *k4 = alloc(128);
-    free(k1); free(k2); free(k3); free(k4);
-    void *k5 = alloc(16), *k6 = alloc(32);
-    free(k5); free(k6);
-    void *arr[100];
-    for (int i = 0; i < 100; i++) arr[i] = alloc(128);
-    for (int i = 0; i < 100; i++) free(arr[i]);
+    char *kmem_ptr1 = (char *)alloc(16);
+    char *kmem_ptr2 = (char *)alloc(32);
+    char *kmem_ptr3 = (char *)alloc(64);
+    char *kmem_ptr4 = (char *)alloc(128);
 
-    void *mid = alloc(3072);
-    if (mid) {
-        uart_puts("3072-byte allocation success\r\n");
-        free(mid);
+    free(kmem_ptr1);
+    free(kmem_ptr2);
+    free(kmem_ptr3);
+    free(kmem_ptr4);
+
+    char *kmem_ptr5 = (char *)alloc(16);
+    char *kmem_ptr6 = (char *)alloc(32);
+
+    free(kmem_ptr5);
+    free(kmem_ptr6);
+
+    /* Test allocate new page if the cache is not enough */
+    void *kmem_ptr[100];
+    for (int i = 0; i < 100; i++)
+        kmem_ptr[i] = (char *)alloc(128);
+    for (int i = 0; i < 100; i++)
+        free(kmem_ptr[i]);
+
+    /* Test exceeding the maximum size */
+    char *kmem_ptr7 = (char *)alloc(MAX_ALLOC_SIZE + 1);
+    if (kmem_ptr7 == 0) {
+        uart_puts("Allocation failed as expected for size > MAX_ALLOC_SIZE\r\n");
     } else {
-        uart_puts("3072-byte allocation failed\r\n");
+        uart_puts("Unexpected allocation success for size > MAX_ALLOC_SIZE\r\n");
+        free(kmem_ptr7);
     }
-
-    void *bad = alloc(MAX_ALLOC_SIZE + 1);
-    if (!bad) uart_puts("Allocation failed as expected for size > MAX_ALLOC_SIZE\r\n");
 }
 
 /*
