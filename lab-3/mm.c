@@ -93,11 +93,6 @@ static void log_merge(size_t a, size_t b, int order) {
     uart_puts(" at order "); uart_putdec(order); uart_puts("\r\n");
 }
 
-static void startup_range_init(uint64_t base, uint64_t size) {
-    g_startup_cur = (uint8_t *)(uintptr_t)align_up((size_t)base, PAGE_SIZE);
-    g_startup_end = (uint8_t *)(uintptr_t)(base + size);
-}
-
 static void memory_reserve_startup(uint64_t start, uint64_t size) {
     if (!size || !g_startup_cur) return;
     uintptr_t s = (uintptr_t)start;
@@ -144,6 +139,7 @@ static void buddy_build_from_free_frames(void) {
         int order = MAX_ORDER;
         while (order > 0) {
             size_t blk = (1UL << order);
+            // i must be aligned with current order
             if ((i & (blk - 1)) == 0 && i + blk <= g_frame_count) {
                 int ok = 1;
                 for (size_t j = i; j < i + blk; j++) {
@@ -259,9 +255,7 @@ static void pool_refill(int pidx) {
 int mm_init(const void *fdt) {
     uint64_t mem_base = 0, mem_size = 0;
     if (!dtb_get_memory_region0(fdt, &mem_base, &mem_size)) {
-        /* Fallback safe region if DTB memory node parse fails */
-        mem_base = 0x10000000ULL;
-        mem_size = 0x10000000ULL;
+      return 1;
     }
 
     g_mem_base = mem_base;
@@ -274,11 +268,11 @@ int mm_init(const void *fdt) {
         g_pools[i].free_list = 0;
     }
 
-    startup_range_init(mem_base, mem_size);
-    if ((uintptr_t)g_startup_cur < (uintptr_t)&_end) {
-        g_startup_cur = (uint8_t *)(uintptr_t)align_up((size_t)(uintptr_t)&_end, PAGE_SIZE);
-    }
-    startup_alloc(0, 1); /* ensure non-null state */
+    /* Start bump pointer directly after the kernel image, skipping the
+     * low memory region (OpenSBI + original kernel load area 0x0~_end). */
+    uintptr_t after_kernel = align_up((size_t)(uintptr_t)&_end, PAGE_SIZE);
+    g_startup_cur = (uint8_t *)after_kernel;
+    g_startup_end = (uint8_t *)(uintptr_t)(mem_base + mem_size);
     memory_reserve_startup((uint64_t)(uintptr_t)&_start, (uint64_t)((uintptr_t)&_end - (uintptr_t)&_start));
     memory_reserve_startup((uint64_t)(uintptr_t)fdt, 0x10000); /* conservative before parsing header */
     {
@@ -327,6 +321,7 @@ void *alloc(size_t size) {
     if (size == 0 || size > MAX_ALLOC_SIZE) return 0;
 
     if (size >= PAGE_SIZE) {
+        // use page frame allocator
         int order = page_order_for_size(size + sizeof(struct large_hdr));
         void *page = page_alloc_order(order);
         if (!page) return 0;
