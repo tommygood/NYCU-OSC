@@ -6,6 +6,7 @@ typedef unsigned long size_t;
 #define MAX_ALLOC_SIZE  2147483647UL
 
 int   mm_init(const void *fdt);
-void *alloc(size_t size);
+void *allocate(size_t size);
 void  free(void *ptr);
+void  dump_free_lists(void);
 
