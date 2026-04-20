@@ -439,4 +439,27 @@ void free(void *ptr) {
 
     uart_puts("[Chunk] Free "); uart_hex((unsigned long)(uintptr_t)c);
     uart_puts(" at chunk size "); uart_putdec(g_pools[pool].chunk_size); uart_puts("\r\n");
+
+    // check if all chunks in this page are free, if so return page to buddy
+    uintptr_t page_base = pa & ~(PAGE_SIZE - 1);
+    size_t csz = g_pools[pool].chunk_size;
+    size_t total = PAGE_SIZE / csz;
+    size_t free_count = 0;
+    struct chunk *cur = g_pools[pool].free_list;
+    while (cur) {
+        if (((uintptr_t)cur & ~(PAGE_SIZE - 1)) == page_base) free_count++;
+        cur = cur->next;
+    }
+    if (free_count == total) {
+        // remove all chunks of this page from the free list
+        struct chunk **pp = &g_pools[pool].free_list;
+        while (*pp) {
+            if (((uintptr_t)*pp & ~(PAGE_SIZE - 1)) == page_base)
+                *pp = (*pp)->next;
+            else
+                pp = &(*pp)->next;
+        }
+        g_frames[pidx].pool_idx = -1;
+        page_free_order((void *)page_base, 0);
+    }
 }
