@@ -286,13 +286,15 @@ static int timeout_pool_idx = 0;
 
 static void timeout_cb(void *arg) {
     struct timeout_info *info = (struct timeout_info *)arg;
-    uart_puts("[setTimeout] \"");
+    //uart_puts("[setTimeout] \"");
     uart_puts(info->message);
+    /*
     uart_puts("\" at ");
     uart_putdec(timer_get_seconds());
     uart_puts("s (set at ");
     uart_putdec(info->set_time);
     uart_puts("s)\r\n");
+    */
 }
 
 static unsigned long parse_ulong(const char *s) {
