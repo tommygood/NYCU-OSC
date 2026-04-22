@@ -427,6 +427,14 @@ static void cmd_mmtest(void) {
 static void cmd_bootloader(void) {
     uart_puts("UART Bootloader ready. Waiting for kernel (BOOT protocol)...\r\n");
 
+    /* Disable UART interrupts so uart_getc() (polling) works correctly.
+     * The IRQ handler would steal bytes from the FIFO before getc sees them. */
+    /* Disable all interrupts — the IRQ handler would steal bytes from
+     * the FIFO before polling uart_getc() sees them, and stale timer
+     * interrupts can fire into the new kernel before it sets up stvec. */
+    asm volatile("csrci sstatus, 2");   /* clear SIE — disable all S-mode interrupts */
+    uart_init();   /* resets IER to 0 — disables all UART interrupts */
+
     while (1) {
         unsigned long magic = uart_read_u32_le();
         if (magic != 0x544F4F42UL) {
