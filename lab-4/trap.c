@@ -1,7 +1,7 @@
 /*
  * trap.c - C-level trap dispatcher.
  *
- * Called from trap.S with a pointer to the saved trap frame.
+ * Called from trapasm.S with a pointer to the saved trap frame.
  */
 
 #include "trap.h"
@@ -11,82 +11,120 @@
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_putc(char c);
+extern void uart_putdec(unsigned long n);
 extern void uart_irq_handler(void);
 
-/* ---- Bottom-half task queue (Advanced Exercise 2) ---- */
+/* ==== Advanced Exercise 2: Priority task queue with preemption ==== */
 
-typedef void (*task_fn_t)(void);
+typedef void (*task_callback_t)(void *arg);
+
+struct task_entry {
+    task_callback_t callback;
+    void           *arg;
+    int             priority;  /* higher value = higher priority */
+    int             active;
+};
 
 #define MAX_TASKS 32
 
-static task_fn_t task_queue[MAX_TASKS];
-static volatile int task_head = 0;
-static volatile int task_tail = 0;
+static struct task_entry task_pool[MAX_TASKS];
+static int task_count = 0;
+static volatile int running_priority = -1; /* priority of currently executing task */
 
-void enqueue_task(task_fn_t fn) {
-    int next = (task_head + 1) % MAX_TASKS;
-    if (next != task_tail) {
-        task_queue[task_head] = fn;
-        task_head = next;
+void add_task(task_callback_t callback, void *arg, int priority) {
+    if (task_count >= MAX_TASKS) return;
+
+    /* Insert sorted by priority (ascending: lowest first, highest last) */
+    int pos = task_count;
+    for (int i = 0; i < task_count; i++) {
+        if (priority < task_pool[i].priority) {
+            pos = i;
+            break;
+        }
     }
+    /* Shift right */
+    for (int i = task_count; i > pos; i--)
+        task_pool[i] = task_pool[i - 1];
+
+    task_pool[pos].callback = callback;
+    task_pool[pos].arg = arg;
+    task_pool[pos].priority = priority;
+    task_pool[pos].active = 1;
+    task_count++;
 }
 
+/*
+ * Execute pending tasks with interrupts enabled (nested interrupts allowed).
+ * Higher-priority tasks preempt lower-priority ones via running_priority check.
+ */
 static void process_pending_tasks(void) {
-    /* Only run if there are tasks queued (avoid unnecessary SIE toggling) */
-    if (task_tail == task_head)
-        return;
+    while (1) {
+        /* Find highest priority task (last in sorted array) */
+        int idx = -1;
+        for (int i = task_count - 1; i >= 0; i--) {
+            if (task_pool[i].active && task_pool[i].priority > running_priority) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) break;
 
-    /* Re-enable interrupts while processing bottom-half tasks */
-    asm volatile("csrsi sstatus, 2"); /* set SIE */
+        /* Remove from queue */
+        struct task_entry t = task_pool[idx];
+        task_pool[idx].active = 0;
+        /* Compact */
+        for (int i = idx; i < task_count - 1; i++)
+            task_pool[i] = task_pool[i + 1];
+        task_count--;
 
-    while (task_tail != task_head) {
-        task_fn_t fn = task_queue[task_tail];
-        task_tail = (task_tail + 1) % MAX_TASKS;
-        fn();
+        /* Execute with interrupts enabled (allows preemption) */
+        int prev_priority = running_priority;
+        running_priority = t.priority;
+        asm volatile("csrsi sstatus, 2"); /* enable SIE */
+
+        t.callback(t.arg);
+
+        asm volatile("csrci sstatus, 2"); /* disable SIE */
+        running_priority = prev_priority;
     }
-
-    /* Disable interrupts before returning to trap handler */
-    asm volatile("csrci sstatus, 2"); /* clear SIE */
 }
 
-/* ---- Syscall (ecall from U-mode) handler ---- */
+/* ==== Syscall (ecall from U-mode) handler ==== */
 
 extern void exec_return_to_kernel(void);
 
 static void handle_ecall(struct trap_frame *tf) {
     unsigned long syscall_nr = tf->a7;
 
-    /* Print diagnostic info for non-trivial syscalls */
-    if (syscall_nr != 1) {
-        uart_puts("[ecall] scause=");
-        uart_hex(tf->scause);
-        uart_puts(" sepc=");
-        uart_hex(tf->sepc);
-        uart_puts(" stval=");
-        uart_hex(tf->stval);
-        uart_puts("\r\n");
-    }
+    /* Print diagnostic info */
+    uart_puts("=== S-Mode trap ===\r\n");
+    uart_puts("scause: ");
+    uart_putdec(tf->scause & ~SCAUSE_INTERRUPT);
+    uart_puts("\r\nsepc: ");
+    uart_hex(tf->sepc);
+    uart_puts("\r\nstval: ");
+    uart_putdec(tf->stval);
+    uart_puts("\r\n");
 
     switch (syscall_nr) {
     case 0: /* exit */
         uart_puts("[syscall] exit\r\n");
-        /* longjmp back to kernel (caller of exec_save_and_switch) */
         exec_return_to_kernel();
-        /* not reached */
         break;
     case 1: /* putchar(a0) */
         uart_putc((char)tf->a0);
         break;
-    case 2: /* getchar -> a0 */
+    case 2: /* getchar -> a0 (non-blocking in trap context) */
         {
-            extern char uart_getc(void);
-            tf->a0 = (unsigned long)(unsigned char)uart_getc();
+            extern int uart_async_read_ready(void);
+            extern char uart_async_getc(void);
+            if (uart_async_read_ready())
+                tf->a0 = (unsigned long)(unsigned char)uart_async_getc();
+            else
+                tf->a0 = 0;
         }
         break;
     default:
-        uart_puts("[syscall] unknown syscall: ");
-        uart_hex(syscall_nr);
-        uart_puts("\r\n");
         break;
     }
 
@@ -94,7 +132,7 @@ static void handle_ecall(struct trap_frame *tf) {
     tf->sepc += 4;
 }
 
-/* ---- External interrupt handler ---- */
+/* ==== External interrupt handler ==== */
 
 static void handle_external_irq(void) {
     int irq = plic_claim();
@@ -109,18 +147,12 @@ static void handle_external_irq(void) {
         plic_complete(irq);
 }
 
-/* ---- Main trap dispatcher ---- */
+/* ==== Main trap dispatcher ==== */
 
 void do_trap(struct trap_frame *tf) {
     unsigned long scause = tf->scause;
     int is_interrupt = (scause >> 63) & 1;
     unsigned long code = scause & ~SCAUSE_INTERRUPT;
-
-    uart_puts("[trap] scause=");
-    uart_hex(scause);
-    uart_puts(" sepc=");
-    uart_hex(tf->sepc);
-    uart_puts("\r\n");
 
     if (is_interrupt) {
         switch (code) {
@@ -150,7 +182,6 @@ void do_trap(struct trap_frame *tf) {
             uart_puts(" stval=");
             uart_hex(tf->stval);
             uart_puts("\r\n");
-            /* Hang on unhandled exception */
             while (1)
                 ;
             break;

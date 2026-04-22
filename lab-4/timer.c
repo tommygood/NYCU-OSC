@@ -117,18 +117,9 @@ extern unsigned long saved_hart_id;
 
 static void default_timer_print(void) {
     unsigned long secs = timer_get_seconds();
-    uart_puts("[timer] seconds since boot: ");
+    uart_puts("boot time: ");
     uart_putdec(secs);
 
-    /* Debug: dump all PLIC pending words to find UART IRQ */
-#ifndef QEMU
-    uart_puts(" pend:");
-    for (int w = 0; w < 5; w++) {
-        unsigned long val = *(volatile unsigned int *)(0xe0000000UL + 0x1000UL + w * 4);
-        uart_putc(' ');
-        uart_hex(val);
-    }
-#endif
     uart_puts("\r\n");
 }
 

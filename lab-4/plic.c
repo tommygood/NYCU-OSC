@@ -50,17 +50,10 @@ void plic_init(void) {
     /* Set priority threshold to 0 (allow all priorities) */
     *(volatile unsigned int *)PLIC_THRESHOLD(ctx) = 0;
 
-    /* Debug: read back and verify */
     uart_puts("[plic] ctx=");
     uart_putdec(ctx);
-    uart_puts(" priority=");
-    uart_hex(*(volatile unsigned int *)PLIC_PRIORITY(UART_IRQ));
-    uart_puts(" enable[");
-    uart_putdec(UART_IRQ / 32);
-    uart_puts("]=");
-    uart_hex(*(volatile unsigned int *)enable_addr);
-    uart_puts(" threshold=");
-    uart_hex(*(volatile unsigned int *)PLIC_THRESHOLD(ctx));
+    uart_puts(" IRQ=");
+    uart_putdec(UART_IRQ);
     uart_puts("\r\n");
 }
 

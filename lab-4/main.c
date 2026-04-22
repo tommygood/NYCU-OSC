@@ -177,7 +177,7 @@ static void cmd_help(void) {
               "  cat <file>    - print initrd file\r\n"
               "  exec <file>   - load and run user program in U-mode\r\n"
               "  timer         - show timer seconds\r\n"
-              "  settimer <us> - add a one-shot timer (microseconds)\r\n"
+              "  setTimeout <s> <msg> - print msg after s seconds\r\n"
               "  mmtest        - run allocator test\r\n"
               "  bootloader    - receive kernel via UART (BOOT protocol)\r\n");
 }
@@ -275,12 +275,24 @@ static void cmd_timer(void) {
     uart_puts("\r\n");
 }
 
-/* Timer callback for one-shot user timer */
-static void user_timer_cb(void *arg) {
-    unsigned long us = (unsigned long)arg;
-    uart_puts("[timer] user timer fired (");
-    uart_putdec(us);
-    uart_puts(" us)\r\n");
+/* setTimeout: stores the message and set-time, prints them when timer fires */
+struct timeout_info {
+    char message[64];
+    unsigned long set_time;
+};
+
+static struct timeout_info timeout_pool[8];
+static int timeout_pool_idx = 0;
+
+static void timeout_cb(void *arg) {
+    struct timeout_info *info = (struct timeout_info *)arg;
+    uart_puts("[setTimeout] \"");
+    uart_puts(info->message);
+    uart_puts("\" at ");
+    uart_putdec(timer_get_seconds());
+    uart_puts("s (set at ");
+    uart_putdec(info->set_time);
+    uart_puts("s)\r\n");
 }
 
 static unsigned long parse_ulong(const char *s) {
@@ -292,16 +304,36 @@ static unsigned long parse_ulong(const char *s) {
     return r;
 }
 
-static void cmd_settimer(const char *arg) {
+/* Skip digits and whitespace to get to the message part */
+static const char *skip_to_message(const char *s) {
+    while (*s >= '0' && *s <= '9') s++;
+    while (*s == ' ') s++;
+    return s;
+}
+
+static void cmd_settimeout(const char *arg) {
     if (!arg || *arg == '\0') {
-        uart_puts("Usage: settimer <microseconds>\r\n");
+        uart_puts("Usage: setTimeout <seconds> <message>\r\n");
         return;
     }
-    unsigned long us = parse_ulong(arg);
-    add_timer(user_timer_cb, (void *)us, us);
-    uart_puts("Timer set for ");
-    uart_putdec(us);
-    uart_puts(" us\r\n");
+    unsigned long secs = parse_ulong(arg);
+    const char *msg = skip_to_message(arg);
+
+    /* Store info in pool */
+    struct timeout_info *info = &timeout_pool[timeout_pool_idx % 8];
+    timeout_pool_idx++;
+    info->set_time = timer_get_seconds();
+    /* Copy message */
+    int i = 0;
+    while (msg[i] && i < 63) { info->message[i] = msg[i]; i++; }
+    info->message[i] = '\0';
+
+    add_timer(timeout_cb, info, secs * 1000000UL);
+    uart_puts("setTimeout: \"");
+    uart_puts(info->message);
+    uart_puts("\" after ");
+    uart_putdec(secs);
+    uart_puts("s\r\n");
 }
 
 static void cmd_mmtest(void) {
@@ -431,7 +463,7 @@ static void dispatch(char *cmd, char *arg) {
     else if (k_strcmp(cmd, "cat")        == 0) cmd_cat(arg);
     else if (k_strcmp(cmd, "exec")       == 0) cmd_exec(arg);
     else if (k_strcmp(cmd, "timer")      == 0) cmd_timer();
-    else if (k_strcmp(cmd, "settimer")   == 0) cmd_settimer(arg);
+    else if (k_strcmp(cmd, "setTimeout")  == 0) cmd_settimeout(arg);
     else if (k_strcmp(cmd, "mmtest")     == 0) cmd_mmtest();
     else if (k_strcmp(cmd, "bootloader") == 0) cmd_bootloader();
     else if (cmd[0] != '\0') {
@@ -488,11 +520,6 @@ static void shell_run(void) {
 static void irq_init(void) {
     /* 0. Detect SBI timer support (new vs legacy) */
     sbi_timer_init();
-    uart_puts("[irq] hart_id=");
-    uart_putdec(saved_hart_id);
-    uart_puts(" SBI TIME ext=");
-    uart_putdec((unsigned long)sbi_probe_extension(0x54494D45));
-    uart_puts("\r\n");
 
     /* 1. Configure devices BEFORE enabling CPU interrupts */
     plic_init();
@@ -514,15 +541,7 @@ static void irq_init(void) {
     unsigned long sie_bit = (1UL << 1);
     asm volatile("csrs sstatus, %0" :: "r"(sie_bit));
 
-    /* Debug: dump CSR state */
-    unsigned long sie_val, sstatus_val;
-    asm volatile("csrr %0, sie" : "=r"(sie_val));
-    asm volatile("csrr %0, sstatus" : "=r"(sstatus_val));
-    uart_puts("[irq] sie=");
-    uart_hex(sie_val);
-    uart_puts(" sstatus=");
-    uart_hex(sstatus_val);
-    uart_puts("\r\n");
+    /* empty */
 }
 
 /* ── Kernel entry point ──────────────────────────────────────────────────── */
