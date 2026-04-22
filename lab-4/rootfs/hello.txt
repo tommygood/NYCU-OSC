@@ -1,0 +1,2 @@
+Hello from the initial ramdisk!
+This file is stored in the cpio archive.
