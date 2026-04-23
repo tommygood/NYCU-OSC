@@ -338,3 +338,21 @@ int dtb_get_reserved_region(const void *fdt, int idx, uint64_t *base, uint64_t *
     }
     return 0;
 }
+
+/*
+ * Read timebase-frequency from /cpus node.
+ * Returns 0 if not found.
+ */
+unsigned long dtb_get_timebase_freq(const void *fdt) {
+    int off = fdt_path_offset(fdt, "/cpus");
+    if (off < 0) return 0;
+    int len;
+    const uint32_t *p = (const uint32_t *)fdt_getprop(
+                            fdt, off, "timebase-frequency", &len);
+    if (!p) return 0;
+    if (len == 4) return (unsigned long)bswap32(p[0]);
+    if (len == 8)
+        return ((unsigned long)bswap32(p[0]) << 32)
+             | (unsigned long)bswap32(p[1]);
+    return 0;
+}

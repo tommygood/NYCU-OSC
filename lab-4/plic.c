@@ -27,7 +27,7 @@
 
 #include "plic.h"
 
-extern unsigned long saved_hart_id;
+extern unsigned long saved_hart_id; // Set in start.S
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_putdec(unsigned long n);
@@ -58,9 +58,11 @@ void plic_init(void) {
 }
 
 int plic_claim(void) {
+    /* return 0 if there's no pending interrupt, otherwise highest priority IRQ */ 
     return *(volatile unsigned int *)PLIC_CLAIM(plic_ctx());
 }
 
 void plic_complete(int irq) {
+    /* This unlocks that IRQ source so the PLIC can deliver it again next time it fires. */
     *(volatile unsigned int *)PLIC_CLAIM(plic_ctx()) = irq;
 }

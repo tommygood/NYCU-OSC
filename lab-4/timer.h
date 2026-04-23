@@ -6,6 +6,7 @@
 
 typedef void (*timer_callback_t)(void *arg);
 
+void timer_set_freq(unsigned long freq);
 void timer_init(void);
 void handle_timer_irq(void);
 

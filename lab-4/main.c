@@ -41,6 +41,7 @@ extern int    k_strncmp(const char *a, const char *b, size_t n);
 /* ── DTB helpers (dtb.c) ─────────────────────────────────────────────────── */
 extern unsigned long dtb_get_uart_base(const void *fdt);
 extern unsigned long dtb_get_initrd_start(const void *fdt);
+extern unsigned long dtb_get_timebase_freq(const void *fdt);
 
 /* ── cpio (newc) parser ──────────────────────────────────────────────────── */
 struct cpio_t {
@@ -551,7 +552,6 @@ static void irq_init(void) {
     unsigned long sie_bit = (1UL << 1);
     asm volatile("csrs sstatus, %0" :: "r"(sie_bit));
 
-    /* empty */
 }
 
 /* ── Kernel entry point ──────────────────────────────────────────────────── */
@@ -560,9 +560,11 @@ void kernel_main(void *fdt) {
 
     unsigned long uart_base    = dtb_get_uart_base(fdt);
     unsigned long initrd_start = dtb_get_initrd_start(fdt);
+    unsigned long tb_freq      = dtb_get_timebase_freq(fdt);
 
     if (uart_base)    uart_set_base(uart_base);
     if (initrd_start) g_initrd = (const void *)initrd_start;
+    if (tb_freq)      timer_set_freq(tb_freq);
 
     uart_puts("\r\n\r\n");
     uart_puts("OSC2026 Lab 4 - Exception and Interrupt\r\n");
