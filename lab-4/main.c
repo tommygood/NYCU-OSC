@@ -229,9 +229,7 @@ static void cmd_exec(const char *arg) {
     }
 
     /* Allocate memory for user program */
-    size_t alloc_size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    if (alloc_size < PAGE_SIZE) alloc_size = PAGE_SIZE;
-    uint8_t *prog = (uint8_t *)allocate(alloc_size);
+    uint8_t *prog = (uint8_t *)allocate(size);
     if (!prog) {
         uart_puts("Failed to allocate memory for program\r\n");
         return;
