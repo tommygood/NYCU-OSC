@@ -1,29 +1,26 @@
 /*
  * plic.c - Platform-Level Interrupt Controller driver.
  *
- * QEMU virt: PLIC at 0x0c000000.
- * OrangePi RV2 (K1): PLIC at 0xe0000000.
- *
  * S-mode context = 2 * hart_id + 1.
  */
 
-#ifdef QEMU
-#define PLIC_BASE   0x0c000000UL
-#else
-#define PLIC_BASE   0xe0000000UL
-#endif
+static unsigned long plic_base = 0x0c000000UL; /* default QEMU */
 
 /* Per-IRQ priority register (IRQ 0 is reserved) */
-#define PLIC_PRIORITY(irq)      (PLIC_BASE + (irq) * 4)
+#define PLIC_PRIORITY(irq)      (plic_base + (irq) * 4)
 
 /* Per-context enable bits: base + 0x2000 + context * 0x80 */
-#define PLIC_ENABLE(ctx)        (PLIC_BASE + 0x2000UL + (ctx) * 0x80UL)
+#define PLIC_ENABLE(ctx)        (plic_base + 0x2000UL + (ctx) * 0x80UL)
 
 /* Per-context threshold: base + 0x200000 + context * 0x1000 */
-#define PLIC_THRESHOLD(ctx)     (PLIC_BASE + 0x200000UL + (ctx) * 0x1000UL)
+#define PLIC_THRESHOLD(ctx)     (plic_base + 0x200000UL + (ctx) * 0x1000UL)
 
 /* Per-context claim/complete: base + 0x200004 + context * 0x1000 */
-#define PLIC_CLAIM(ctx)         (PLIC_BASE + 0x200004UL + (ctx) * 0x1000UL)
+#define PLIC_CLAIM(ctx)         (plic_base + 0x200004UL + (ctx) * 0x1000UL)
+
+void plic_set_base(unsigned long base) {
+    plic_base = base;
+}
 
 #include "plic.h"
 

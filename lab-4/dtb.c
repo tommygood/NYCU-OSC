@@ -340,6 +340,34 @@ int dtb_get_reserved_region(const void *fdt, int idx, uint64_t *base, uint64_t *
 }
 
 /*
+ * Read PLIC base address from /soc/plic (QEMU) or /soc/interrupt-controller (K1).
+ * Returns 0 if not found.
+ */
+unsigned long dtb_get_plic_base(const void *fdt) {
+    int soc_off = fdt_path_offset(fdt, "/soc");
+    int addr_cells = (soc_off >= 0) ? fdt_address_cells(fdt, soc_off) : 2;
+
+    /* Try QEMU name first, then K1 name */
+    int off = fdt_path_offset(fdt, "/soc/plic");
+    if (off < 0) off = fdt_path_offset(fdt, "/soc/interrupt-controller");
+    if (off < 0) return 0;
+
+    int len;
+    const uint32_t *reg =
+        (const uint32_t *)fdt_getprop(fdt, off, "reg", &len);
+    if (!reg) return 0;
+
+    if (addr_cells == 1) {
+        if (len < 4) return 0;
+        return (unsigned long)bswap32(reg[0]);
+    } else {
+        if (len < 8) return 0;
+        return ((unsigned long)bswap32(reg[0]) << 32)
+             | (unsigned long)bswap32(reg[1]);
+    }
+}
+
+/*
  * Read timebase-frequency from /cpus node.
  * Returns 0 if not found.
  */

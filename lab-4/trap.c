@@ -111,19 +111,6 @@ static void handle_ecall(struct trap_frame *tf) {
         uart_puts("[syscall] exit\r\n");
         exec_return_to_kernel();
         break;
-    case 1: /* putchar(a0) */
-        uart_putc((char)tf->a0);
-        break;
-    case 2: /* getchar -> a0 (non-blocking in trap context) */
-        {
-            extern int uart_async_read_ready(void);
-            extern char uart_async_getc(void);
-            if (uart_async_read_ready())
-                tf->a0 = (unsigned long)(unsigned char)uart_async_getc();
-            else
-                tf->a0 = 0;
-        }
-        break;
     default:
         break;
     }
@@ -152,7 +139,7 @@ static void handle_external_irq(void) {
 void do_trap(struct trap_frame *tf) {
     unsigned long scause = tf->scause;
     int is_interrupt = (scause >> 63) & 1;
-    unsigned long code = scause & ~SCAUSE_INTERRUPT;
+    unsigned long code = scause & ~SCAUSE_INTERRUPT; // clear bit 63
 
     if (is_interrupt) {
         switch (code) {

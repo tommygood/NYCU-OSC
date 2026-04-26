@@ -42,6 +42,7 @@ extern int    k_strncmp(const char *a, const char *b, size_t n);
 extern unsigned long dtb_get_uart_base(const void *fdt);
 extern unsigned long dtb_get_initrd_start(const void *fdt);
 extern unsigned long dtb_get_timebase_freq(const void *fdt);
+extern unsigned long dtb_get_plic_base(const void *fdt);
 
 /* ── cpio (newc) parser ──────────────────────────────────────────────────── */
 struct cpio_t {
@@ -559,10 +560,12 @@ void kernel_main(void *fdt) {
     unsigned long uart_base    = dtb_get_uart_base(fdt);
     unsigned long initrd_start = dtb_get_initrd_start(fdt);
     unsigned long tb_freq      = dtb_get_timebase_freq(fdt);
+    unsigned long plic_addr    = dtb_get_plic_base(fdt);
 
     if (uart_base)    uart_set_base(uart_base);
     if (initrd_start) g_initrd = (const void *)initrd_start;
     if (tb_freq)      timer_set_freq(tb_freq);
+    if (plic_addr)    plic_set_base(plic_addr);
 
     uart_puts("\r\n\r\n");
     uart_puts("OSC2026 Lab 4 - Exception and Interrupt\r\n");

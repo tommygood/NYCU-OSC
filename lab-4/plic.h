@@ -10,6 +10,7 @@
 #define UART_IRQ  42    /* OrangePi RV2 / SpacemiT K1 (0x2a from DTB) */
 #endif
 
+void plic_set_base(unsigned long base);
 void plic_init(void);
 int  plic_claim(void);
 void plic_complete(int irq);
