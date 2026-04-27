@@ -7,6 +7,9 @@
 #define LSR_DR   (1u << 0)   /* data ready  (RX) */
 #define LSR_THRE (1u << 5)   /* TX holding register empty / TDRQ */
 
+/* Forward declaration */
+void uart_puts(const char *s);
+
 static unsigned long uart_base = 0;
 
 void uart_set_base(unsigned long base) {
@@ -19,7 +22,7 @@ unsigned long uart_debug_get_base(void) {
 
 /* ---- Circular buffer for async I/O ---- */
 
-#define BUF_SIZE 256
+#define BUF_SIZE 2048
 
 struct ring_buf {
     char data[BUF_SIZE];
@@ -68,7 +71,7 @@ static int uart_async_enabled = 0;
 #define UART_MCR(base)  ((volatile unsigned char *)((base) + 0x04))
 #define UART_LSR(base)  ((volatile unsigned char *)((base) + 0x05))
 
-char uart_getc(void) {
+static char uart_getc_poll(void) {
     volatile unsigned char *lsr = UART_LSR(uart_base);
     volatile unsigned char *rbr = UART_RBR(uart_base);
     while (!(*lsr & LSR_DR))
@@ -76,7 +79,7 @@ char uart_getc(void) {
     return *rbr;
 }
 
-void uart_putc(char c) {
+static void uart_putc_poll(char c) {
     volatile unsigned char *lsr = UART_LSR(uart_base);
     volatile unsigned char *thr = UART_THR(uart_base);
     while (!(*lsr & LSR_THRE))
@@ -97,12 +100,15 @@ void uart_init(void) {
     *ier = 0x00;
     *lcr = 0x03;
     *fcr = 0x07;
+    uart_async_enabled = 0;
 }
 
 /* Enable UART RX interrupt (and optionally TX) */
 void uart_enable_irq(void) {
     /* IER bit 0: RX data available interrupt */
+    // Setting Bit 0 to 1 means that the UART hardware will trigger an interrupt when the receiving buffer receives data.
     *UART_IER(uart_base) = 0x01;
+    uart_puts("[uart] async RX/TX enabled\r\n");
     uart_async_enabled = 1;
 }
 
@@ -153,7 +159,7 @@ void uart_irq_handler(void) {
 #define UART_LCR_K1(base)  ((volatile unsigned int *)((base) + 0x0C))
 #define UART_LSR_K1(base)  ((volatile unsigned int *)((base) + 0x14))
 
-char uart_getc(void) {
+static char uart_getc_poll(void) {
     volatile unsigned int *lsr = UART_LSR_K1(uart_base);
     volatile unsigned int *rbr = UART_RBR_K1(uart_base);
     while (!(*lsr & LSR_DR))
@@ -161,7 +167,7 @@ char uart_getc(void) {
     return (char)(*rbr & 0xFF);
 }
 
-void uart_putc(char c) {
+static void uart_putc_poll(char c) {
     volatile unsigned int *lsr = UART_LSR_K1(uart_base);
     volatile unsigned int *thr = UART_THR_K1(uart_base);
     while (!(*lsr & LSR_THRE))
@@ -182,6 +188,7 @@ void uart_init(void) {
     *ier = (1u << 6);
     *fcr = (1u << 5) | (1u << 0);
     *lcr = 0x03;
+    uart_async_enabled = 0;
 }
 
 void uart_enable_irq(void) {
@@ -200,9 +207,11 @@ void uart_enable_irq(void) {
 
     /* 
        UUE (bit 6): UART Unit Enable — the K1 pxa-uart won't function at all without this master enable bit
-       RTOIE (bit 4): Receiver Timeout Interrupt Enable — fires when data sits in the FIFO for too long without being read (handles the case where fewer bytes than the trigger level arrive)                                                              RAVIE (bit 0): Receiver Data Available Interrupt Enable — fires when RX FIFO has data  
+       RTOIE (bit 4): Receiver Timeout Interrupt Enable — fires when data sits in the FIFO for too long without being read (handles the case where fewer bytes than the trigger level arrive)
+       RAVIE (bit 0): Receiver Data Available Interrupt Enable — fires when RX FIFO has data  
     */
     *UART_IER_K1(uart_base) = (1u << 6) | (1u << 4) | (1u << 0);
+    uart_puts("[uart] async RX/TX enabled\r\n");
     uart_async_enabled = 1;
 }
 
@@ -227,9 +236,11 @@ void uart_irq_handler(void) {
                 buf_push(&rx_buf, c);
             }
         } else if (id == 0x01) {
+            /* TX holding register empty */
             if (!buf_empty(&tx_buf)) {
                 *UART_THR_K1(uart_base) = (unsigned char)buf_pop(&tx_buf);
             } else {
+                // disable TX interrupt if no more data to send, to avoid wasting cpu time in the ISR
                 uart_disable_tx_irq();
             }
         }
@@ -249,12 +260,36 @@ char uart_async_getc(void) {
     return buf_pop(&rx_buf);
 }
 
+/* ---- Unified getc: async when interrupts enabled, polling otherwise ---- */
+
+char uart_getc(void) {
+    static int poll_warned = 0;
+    if (uart_async_enabled)
+        return uart_async_getc();
+    if (!poll_warned) {
+        uart_puts("[uart] warning: falling back to polling mode\r\n");
+        poll_warned = 1;
+    }
+    return uart_getc_poll();
+}
+
 void uart_async_putc(char c) {
     /* Wait if TX buffer is full */
     while (buf_full(&tx_buf))
         ;
+    // This could cause a deadlock if the interrupt handler isn't working, 
+    // So fall back to polling mode if the buffer is full for too long (not implemented here, but could be a future improvement).
     buf_push(&tx_buf, c);
     uart_enable_tx_irq();
+}
+
+/* ---- Unified putc: async when interrupts enabled, polling otherwise ---- */
+
+void uart_putc(char c) {
+    if (uart_async_enabled)
+        uart_async_putc(c);
+    else
+        uart_putc_poll(c);
 }
 
 void uart_async_puts(const char *s) {

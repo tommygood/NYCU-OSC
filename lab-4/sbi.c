@@ -1,3 +1,4 @@
+extern void uart_puts(const char *s);
 struct sbiret { long error; long value; };
 
 static struct sbiret sbi_ecall(int ext, int fid,
@@ -49,6 +50,7 @@ long sbi_probe_extension(long ext_id) {
 static int use_legacy_timer = 0;
 
 void sbi_set_timer(unsigned long stime_value) {
+    // function id of sbi_set_timer is 0
     if (use_legacy_timer)
         sbi_ecall(SBI_LEGACY_SET_TIMER, 0, stime_value, 0, 0, 0, 0, 0);
     else
@@ -56,8 +58,10 @@ void sbi_set_timer(unsigned long stime_value) {
 }
 
 void sbi_timer_init(void) {
-    if (sbi_probe_extension(SBI_EXT_TIME))
+    if (sbi_probe_extension(SBI_EXT_TIME)) {
         use_legacy_timer = 0;
+        uart_puts("[sbi] using new timer extension\r\n");
+    }
     else
         use_legacy_timer = 1;
 }

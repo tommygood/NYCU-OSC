@@ -277,25 +277,20 @@ static void cmd_timer(void) {
 }
 
 /* setTimeout: stores the message and set-time, prints them when timer fires */
+#define MAX_TIMEOUTS 8
+
 struct timeout_info {
     char message[64];
     unsigned long set_time;
+    int active;
 };
 
-static struct timeout_info timeout_pool[8];
-static int timeout_pool_idx = 0;
+static struct timeout_info timeout_pool[MAX_TIMEOUTS];
 
 static void timeout_cb(void *arg) {
     struct timeout_info *info = (struct timeout_info *)arg;
-    //uart_puts("[setTimeout] \"");
     uart_puts(info->message);
-    /*
-    uart_puts("\" at ");
-    uart_putdec(timer_get_seconds());
-    uart_puts("s (set at ");
-    uart_putdec(info->set_time);
-    uart_puts("s)\r\n");
-    */
+    info->active = 0;
 }
 
 static unsigned long parse_ulong(const char *s) {
@@ -322,9 +317,17 @@ static void cmd_settimeout(const char *arg) {
     unsigned long secs = parse_ulong(arg);
     const char *msg = skip_to_message(arg);
 
-    /* Store info in pool */
-    struct timeout_info *info = &timeout_pool[timeout_pool_idx % 8];
-    timeout_pool_idx++;
+    /* Find a free slot */
+    int idx = -1;
+    for (int i = 0; i < MAX_TIMEOUTS; i++) {
+        if (!timeout_pool[i].active) { idx = i; break; }
+    }
+    if (idx < 0) {
+        uart_puts("setTimeout: pool full\r\n");
+        return;
+    }
+    struct timeout_info *info = &timeout_pool[idx];
+    info->active = 1;
     info->set_time = timer_get_seconds();
     /* Copy message */
     int i = 0;
@@ -494,8 +497,7 @@ static void shell_run(void) {
         pos = 0;
 
         while (1) {
-            /* Use async (interrupt-driven) UART read */
-            char c = uart_async_getc();
+            char c = uart_getc();
 
             if (c == '\r' || c == '\n') {
                 uart_puts("\r\n");
