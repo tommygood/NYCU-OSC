@@ -123,7 +123,7 @@ static void handle_ecall(struct trap_frame *tf) {
 
 static void handle_external_irq(void) {
     int irq = plic_claim();
-    if (irq == UART_IRQ) {
+    if (irq == (int)plic_get_uart_irq()) {
         uart_irq_handler();
     } else if (irq != 0) {
         uart_puts("[plic] unknown IRQ: ");

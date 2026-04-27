@@ -368,6 +368,20 @@ unsigned long dtb_get_plic_base(const void *fdt) {
 }
 
 /*
+ * Read UART IRQ number from /soc/serial interrupts property.
+ * Returns 0 if not found.
+ */
+unsigned long dtb_get_uart_irq(const void *fdt) {
+    int off = fdt_path_offset(fdt, "/soc/serial");
+    if (off < 0) return 0;
+    int len;
+    const uint32_t *p = (const uint32_t *)fdt_getprop(
+                            fdt, off, "interrupts", &len);
+    if (!p || len < 4) return 0;
+    return (unsigned long)bswap32(p[0]);
+}
+
+/*
  * Read timebase-frequency from /cpus node.
  * Returns 0 if not found.
  */

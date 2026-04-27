@@ -4,7 +4,8 @@
  * S-mode context = 2 * hart_id + 1.
  */
 
-static unsigned long plic_base = 0x0c000000UL; /* default QEMU */
+static unsigned long plic_base = 0x0c000000UL;  /* default QEMU */
+static unsigned long uart_irq = 10;             /* default QEMU */
 
 /* Per-IRQ priority register (IRQ 0 is reserved) */
 #define PLIC_PRIORITY(irq)      (plic_base + (irq) * 4)
@@ -22,6 +23,14 @@ void plic_set_base(unsigned long base) {
     plic_base = base;
 }
 
+void plic_set_uart_irq(unsigned long irq) {
+    uart_irq = irq;
+}
+
+unsigned long plic_get_uart_irq(void) {
+    return uart_irq;
+}
+
 #include "plic.h"
 
 extern unsigned long saved_hart_id; // Set in start.S
@@ -37,12 +46,12 @@ void plic_init(void) {
     unsigned long ctx = plic_ctx();
 
     /* Set UART interrupt priority to 1 */
-    *(volatile unsigned int *)PLIC_PRIORITY(UART_IRQ) = 1;
+    *(volatile unsigned int *)PLIC_PRIORITY(uart_irq) = 1;
 
     /* Enable UART IRQ for this context.
      * Enable registers are 32-bit words; IRQ N is bit (N%32) in word (N/32). */
-    unsigned long enable_addr = PLIC_ENABLE(ctx) + (UART_IRQ / 32) * 4;
-    *(volatile unsigned int *)enable_addr = (1U << (UART_IRQ % 32));
+    unsigned long enable_addr = PLIC_ENABLE(ctx) + (uart_irq / 32) * 4;
+    *(volatile unsigned int *)enable_addr = (1U << (uart_irq % 32));
 
     /* Set priority threshold to 0 (allow all priorities) */
     *(volatile unsigned int *)PLIC_THRESHOLD(ctx) = 0;
@@ -50,7 +59,7 @@ void plic_init(void) {
     uart_puts("[plic] ctx=");
     uart_putdec(ctx);
     uart_puts(" IRQ=");
-    uart_putdec(UART_IRQ);
+    uart_putdec(uart_irq);
     uart_puts("\r\n");
 }
 
