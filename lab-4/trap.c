@@ -16,8 +16,6 @@ extern void uart_irq_handler(void);
 
 /* ==== Advanced Exercise 2: Priority task queue with preemption ==== */
 
-typedef void (*task_callback_t)(void *arg);
-
 struct task_entry {
     task_callback_t callback;
     void           *arg;
@@ -134,6 +132,8 @@ static void handle_ecall(struct trap_frame *tf) {
 
 /* ==== External interrupt handler ==== */
 
+static int pending_plic_irq = 0;
+
 static void handle_external_irq(void) {
     int irq = plic_claim();
     if (irq == (int)plic_get_uart_irq()) {
@@ -143,8 +143,9 @@ static void handle_external_irq(void) {
         uart_hex((unsigned long)irq);
         uart_puts("\r\n");
     }
-    if (irq)
-        plic_complete(irq);
+    /* Delay plic_complete until after process_pending_tasks,
+     * so the device stays masked during bottom-half processing. */
+    pending_plic_irq = irq;
 }
 
 /* ==== Main trap dispatcher ==== */
@@ -152,7 +153,9 @@ static void handle_external_irq(void) {
 void do_trap(struct trap_frame *tf) {
     unsigned long scause = tf->scause;
     int is_interrupt = (scause >> 63) & 1;
-    unsigned long code = scause & ~SCAUSE_INTERRUPT; // clear bit 63
+    unsigned long code = scause & ~SCAUSE_INTERRUPT;
+
+    pending_plic_irq = 0;
 
     if (is_interrupt) {
         switch (code) {
@@ -188,4 +191,10 @@ void do_trap(struct trap_frame *tf) {
         }
     }
 
+    /* Bottom half: run deferred tasks with interrupts enabled */
+    process_pending_tasks();
+
+    /* Unmask the device after tasks are done */
+    if (pending_plic_irq)
+        plic_complete(pending_plic_irq);
 }

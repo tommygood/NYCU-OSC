@@ -7,6 +7,7 @@
  */
 
 #include "timer.h"
+#include "trap.h"
 
 extern void uart_puts(const char *s);
 extern void uart_putdec(unsigned long n);
@@ -115,18 +116,20 @@ static void reprogram_next(void) {
 
 extern unsigned long saved_hart_id;
 
-static void default_timer_print(void) {
+static void default_timer_print(void *arg) {
+    (void)arg;
     unsigned long secs = timer_get_seconds();
     uart_puts("boot time: ");
     uart_putdec(secs);
-
     uart_puts("\r\n");
 }
+
+#define TIMER_TASK_PRIORITY 1
 
 void handle_timer_irq(void) {
     unsigned long now = rdtime();
 
-    /* Fire all expired software timers */
+    /* Top half: check expired timers, enqueue callbacks as tasks */
     int fired = 0;
     while (timer_count > 0) {
         int idx = timer_order[0];
@@ -139,14 +142,14 @@ void handle_timer_irq(void) {
             timer_order[i] = timer_order[i + 1];
         timer_count--;
 
-        /* Call the callback */
-        timer_pool[idx].callback(timer_pool[idx].arg);
+        /* Defer callback to bottom half via task queue */
+        add_task(timer_pool[idx].callback, timer_pool[idx].arg, TIMER_TASK_PRIORITY);
         fired = 1;
     }
 
     if (!fired) {
-        /* No software timers fired - this is the periodic 2s timer */
-        default_timer_print();
+        /* No software timers fired - defer periodic print to bottom half */
+        add_task(default_timer_print, 0, TIMER_TASK_PRIORITY);
     }
 
     /* Reprogram for next event */

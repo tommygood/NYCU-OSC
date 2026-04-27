@@ -55,4 +55,8 @@ struct trap_frame {
 #define IRQ_S_EXTERNAL    9
 #define EXC_ECALL_U       8
 
+/* Task queue API (Advanced Exercise 2) */
+typedef void (*task_callback_t)(void *arg);
+void add_task(task_callback_t callback, void *arg, int priority);
+
 #endif /* TRAP_H */
