@@ -16,15 +16,15 @@ user_prog:
 
 # ── Kernel ─────────────────────────────────────────────────────────────────
 kernel-qemu: clean user_prog initramfs
-	$(CC) $(CFLAGS) -DQEMU -c kernel_start.S trapasm.S $(SUPPORT_SRCS) main.c
+	$(CC) $(CFLAGS) -DQEMU -c start.S trapasm.S $(SUPPORT_SRCS) main.c
 	$(LD) -T linker_qemu.ld -o kernel.elf \
-	    kernel_start.o trapasm.o main.o $(SUPPORT_OBJS)
+	    start.o trapasm.o main.o $(SUPPORT_OBJS)
 	$(OBJCOPY) -O binary kernel.elf kernel.bin
 
 kernel-board: clean user_prog initramfs
-	$(CC) $(CFLAGS) -c kernel_start.S trapasm.S $(SUPPORT_SRCS) main.c
+	$(CC) $(CFLAGS) -c start.S trapasm.S $(SUPPORT_SRCS) main.c
 	$(LD) -T linker.ld -o kernel.elf \
-	    kernel_start.o trapasm.o main.o $(SUPPORT_OBJS)
+	    start.o trapasm.o main.o $(SUPPORT_OBJS)
 	$(OBJCOPY) -O binary kernel.elf kernel.bin
 
 # ── QEMU run targets ───────────────────────────────────────────────────────

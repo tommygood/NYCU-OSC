@@ -433,20 +433,20 @@ static void cmd_mmtest(void) {
 
 static void test_task_cb(void *arg) {
     uart_puts("[Task] Executing Priority ");
-    uart_putdec((unsigned long)arg);
+    uart_puts((char *)arg);
     uart_puts("\r\n");
 }
 
 static void cmd_tasktest(void) {
     uart_puts("=== Task Priority Test ===\r\n");
-    uart_puts("Adding tasks with priority 3, 7, 1, 5, 2...\r\n");
+    uart_puts("Adding tasks with priority 3, 7, 1, 5, 2....\r\n");
     uart_puts("Expected output: highest priority first (7, 5, 3, 2, 1)\r\n\r\n");
 
-    add_task(test_task_cb, (void *)3, 3);
-    add_task(test_task_cb, (void *)7, 7);
-    add_task(test_task_cb, (void *)1, 1);
-    add_task(test_task_cb, (void *)5, 5);
-    add_task(test_task_cb, (void *)2, 2);
+    add_task(test_task_cb, "3", 3);
+    add_task(test_task_cb, "7", 7);
+    add_task(test_task_cb, "1", 1);
+    add_task(test_task_cb, "5", 5);
+    add_task(test_task_cb, "2", 2);
 
     /* Also test NULL callback protection */
     add_task(0, 0, 10);

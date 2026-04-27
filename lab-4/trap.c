@@ -70,7 +70,7 @@ static void process_pending_tasks(void) {
         /* Remove from queue */
         struct task_entry t = task_pool[idx];
         task_pool[idx].active = 0;
-        /* Compact */
+        /* Compact by right Shift elements left */
         for (int i = idx; i < task_count - 1; i++)
             task_pool[i] = task_pool[i + 1];
         task_count--;

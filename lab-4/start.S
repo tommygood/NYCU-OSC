@@ -1,17 +1,54 @@
-/* Kernel entry point – no self-relocation.
+/* Boot entry with self-relocation for board builds.
  *
- * OpenSBI / bootloader jumps here with:
+ * OpenSBI jumps here with:
  *   a0 = hart_id
  *   a1 = DTB pointer
+ *
+ * The kernel is linked at LOAD_ADDR (0x00200000). The bootloader command
+ * receives a new kernel at the same address, so we must relocate ourselves
+ * to RELOC_ADDR first to avoid self-overwrite.
  */
+
+#ifdef QEMU
+# define LOAD_ADDR  0x80200000
+# define RELOC_ADDR 0x84000000
+#else  /* OrangePi RV2 */
+# define LOAD_ADDR  0x00200000
+# define RELOC_ADDR 0x04000000
+#endif
+
 .section ".text.boot"
 .global _start
 
 _start:
-    mv   s0, a0                 /* s0 = hart_id  */
-    mv   s1, a1                 /* s1 = dtb_ptr  */
+    auipc  t0, 0                          /* t0 = runtime address of _start */
+    mv     s0, a0                         /* s0 = hart_id  */
+    mv     s1, a1                         /* s1 = dtb_ptr  */
 
-    /* zero BSS */
+    /* Compare runtime address against RELOC_ADDR.
+     * slli+srli clears sign-extended upper 32 bits from li. */
+    li     t1, RELOC_ADDR
+    slli   t1, t1, 32
+    srli   t1, t1, 32
+    beq    t0, t1, .Ldo_bss              /* already relocated → skip copy */
+
+    /* Copy image to RELOC_ADDR */
+    la     t0, _start
+    la     t2, _end
+    li     t3, RELOC_ADDR
+.Lcopy:
+    ld     t4, 0(t0)
+    sd     t4, 0(t3)
+    addi   t0, t0, 8
+    addi   t3, t3, 8
+    blt    t0, t2, .Lcopy
+
+    /* Flush instruction cache (fence.i) */
+    .4byte 0x0000100F
+    li     t0, RELOC_ADDR
+    jr     t0                             /* re-enter _start at RELOC_ADDR */
+
+.Ldo_bss:
     la   a3, __bss_start
     la   a4, __bss_stop
     ble  a4, a3, 2f
@@ -40,6 +77,7 @@ jump_to_entry:
     mv   t0, a0          /* entry address */
     mv   a0, a1          /* hart_id  → a0 */
     mv   a1, a2          /* dtb_ptr  → a1 */
+    .4byte 0x0000100F    /* fence.i */
     jr   t0
 
 
@@ -47,9 +85,6 @@ jump_to_entry:
  * exec_save_and_switch(unsigned long entry, unsigned long user_sp)
  *
  * Save kernel callee-saved state (setjmp-like), then switch to U-mode.
- * Never returns directly. When exec_return_to_kernel() is called
- * (from the exit syscall handler), execution resumes as if this
- * function returned.
  */
 .section .data
 .global exec_context
@@ -59,7 +94,6 @@ exec_context:
 .section .text
 .global exec_save_and_switch
 exec_save_and_switch:
-    /* Save callee-saved registers (setjmp) */
     la   t0, exec_context
     sd   ra,   0(t0)
     sd   sp,   8(t0)
@@ -76,8 +110,6 @@ exec_save_and_switch:
     sd   s10, 96(t0)
     sd   s11, 104(t0)
 
-    /* Now switch to U-mode (like switch_to_user) */
-    /* a0 = user entry, a1 = user stack pointer */
     csrw sepc, a0
 
     /* Clear SPP (bit 8), set SPIE (bit 5) in sstatus */
@@ -88,10 +120,8 @@ exec_save_and_switch:
     ori  t0, t0, (1 << 5) /* set SPIE */
     csrw sstatus, t0
 
-    /* Store kernel sp in sscratch for trap handler */
     csrw sscratch, sp
 
-    /* Switch to user stack and enter U-mode */
     mv   sp, a1
     sret
 
@@ -100,18 +130,13 @@ exec_save_and_switch:
  * exec_return_to_kernel()
  *
  * Called from the exit syscall handler in trap.c.
- * Restores kernel state saved by exec_save_and_switch (longjmp-like)
- * and returns to the caller of exec_save_and_switch.
+ * Restores kernel state saved by exec_save_and_switch (longjmp-like).
  */
 .global exec_return_to_kernel
 exec_return_to_kernel:
-    /* Re-enable interrupts (SIE was cleared when trap was taken) */
     csrsi sstatus, 2
-
-    /* sscratch should be 0 in S-mode */
     csrw  sscratch, zero
 
-    /* Restore callee-saved registers (longjmp) */
     la   t0, exec_context
     ld   ra,   0(t0)
     ld   sp,   8(t0)
@@ -128,4 +153,4 @@ exec_return_to_kernel:
     ld   s10, 96(t0)
     ld   s11, 104(t0)
 
-    ret   /* returns to caller of exec_save_and_switch */
+    ret
