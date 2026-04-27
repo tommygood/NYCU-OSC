@@ -182,6 +182,7 @@ static void cmd_help(void) {
               "  timer         - show timer seconds\r\n"
               "  setTimeout <s> <msg> - print msg after s seconds\r\n"
               "  mmtest        - run allocator test\r\n"
+              "  tasktest      - test add_task priority ordering\r\n"
               "  bootloader    - receive kernel via UART (BOOT protocol)\r\n");
 }
 
@@ -428,6 +429,31 @@ static void cmd_mmtest(void) {
   uart_puts("\n=== Part 2 End ===\n");
 }
 
+/* ── Task priority test (Advanced Exercise 2) ────────────────────────────── */
+
+static void test_task_cb(void *arg) {
+    uart_puts("[Task] Executing Priority ");
+    uart_putdec((unsigned long)arg);
+    uart_puts("\r\n");
+}
+
+static void cmd_tasktest(void) {
+    uart_puts("=== Task Priority Test ===\r\n");
+    uart_puts("Adding tasks with priority 3, 7, 1, 5, 2...\r\n");
+    uart_puts("Expected output: highest priority first (7, 5, 3, 2, 1)\r\n\r\n");
+
+    add_task(test_task_cb, (void *)3, 3);
+    add_task(test_task_cb, (void *)7, 7);
+    add_task(test_task_cb, (void *)1, 1);
+    add_task(test_task_cb, (void *)5, 5);
+    add_task(test_task_cb, (void *)2, 2);
+
+    /* Also test NULL callback protection */
+    add_task(0, 0, 10);
+
+    uart_puts("Tasks queued. They will execute at next interrupt.\r\n");
+}
+
 static void cmd_bootloader(void) {
     uart_puts("UART Bootloader ready. Waiting for kernel (BOOT protocol)...\r\n");
 
@@ -479,6 +505,7 @@ static void dispatch(char *cmd, char *arg) {
     else if (k_strcmp(cmd, "timer")      == 0) cmd_timer();
     else if (k_strcmp(cmd, "setTimeout")  == 0) cmd_settimeout(arg);
     else if (k_strcmp(cmd, "mmtest")     == 0) cmd_mmtest();
+    else if (k_strcmp(cmd, "tasktest")   == 0) cmd_tasktest();
     else if (k_strcmp(cmd, "bootloader") == 0) cmd_bootloader();
     else if (cmd[0] != '\0') {
         uart_puts("Unknown: ");

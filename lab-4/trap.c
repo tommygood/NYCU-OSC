@@ -30,7 +30,7 @@ static int task_count = 0;
 static volatile int running_priority = -1; /* priority of currently executing task */
 
 void add_task(task_callback_t callback, void *arg, int priority) {
-    if (task_count >= MAX_TASKS) return;
+    if (!callback || task_count >= MAX_TASKS) return;
 
     /* Insert sorted by priority (ascending: lowest first, highest last) */
     int pos = task_count;
