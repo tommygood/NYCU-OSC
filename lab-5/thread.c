@@ -56,6 +56,8 @@ struct task_struct *get_current(void) {
 /* ── Thread wrapper: calls fn, then thread_exit ──────────────────────────── */
 
 static void thread_entry(void) {
+    /* New threads may start from a trap handler where SIE=0 */
+    asm volatile("csrsi sstatus, 2");
     struct task_struct *cur = get_current();
     cur->entry_fn();
     thread_exit();

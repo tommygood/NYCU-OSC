@@ -119,6 +119,7 @@ static void handle_ecall(struct trap_frame *tf) {
             const char *buf = (const char *)tf->a0;
             long count = (long)tf->a1;
             for (long i = 0; i < count; i++) {
+                if (buf[i] == '\n') uart_putc('\r');
                 uart_putc(buf[i]);
             }
             tf->a0 = (unsigned long)count;
@@ -196,9 +197,7 @@ void do_trap(struct trap_frame *tf) {
         switch (code) {
         case IRQ_S_TIMER:
             handle_timer_irq();
-            /* Only preempt if interrupted from user mode (SPP=0) */
-            if (!(tf->sstatus & SSTATUS_SPP))
-                schedule();
+            schedule();
             break;
         case IRQ_S_EXTERNAL:
             handle_external_irq();
