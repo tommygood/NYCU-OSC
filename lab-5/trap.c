@@ -90,6 +90,9 @@ static void handle_ecall(struct trap_frame *tf) {
     struct task_struct *cur = get_current();
     cur->tf = tf;
 
+    /* Enable interrupts so UART TX/RX and timer work during syscalls */
+    asm volatile("csrsi sstatus, 2");
+
 
     switch (syscall_nr) {
     case 0: /* getpid() */
@@ -102,11 +105,8 @@ static void handle_ecall(struct trap_frame *tf) {
             long count = (long)tf->a1;
             long i = 0;
             for (i = 0; i < count; i++) {
-                /* Enable interrupts so UART IRQ can fill the ring buffer */
-                asm volatile("csrsi sstatus, 2");
                 while (!uart_async_read_ready())
                     ;
-                asm volatile("csrci sstatus, 2");
                 buf[i] = uart_async_getc();
                 if (buf[i] == '\r') buf[i] = '\n';  /* CR → NL translation */
             }
@@ -229,12 +229,11 @@ void do_trap(struct trap_frame *tf) {
         }
     }
 
-    /* Bottom half: run deferred tasks with interrupts enabled
-     * Only run for interrupt handlers — ecall handlers may call
-     * schedule/switch_to which interacts badly with nested interrupts
-     * during process_pending_tasks. */
-    if (is_interrupt)
-        process_pending_tasks();
+    /* Disable interrupts before accessing shared task queue */
+    asm volatile("csrci sstatus, 2");
+
+    /* Bottom half: run deferred tasks (manages SIE internally) */
+    process_pending_tasks();
 
     /* Unmask the device after tasks are done */
     if (pending_plic_irq)

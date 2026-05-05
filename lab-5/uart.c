@@ -79,7 +79,7 @@ static char uart_getc_poll(void) {
     return *rbr;
 }
 
-static void uart_putc_poll(char c) {
+void uart_putc_poll(char c) {
     volatile unsigned char *lsr = UART_LSR(uart_base);
     volatile unsigned char *thr = UART_THR(uart_base);
     while (!(*lsr & LSR_THRE))
@@ -167,7 +167,7 @@ static char uart_getc_poll(void) {
     return (char)(*rbr & 0xFF);
 }
 
-static void uart_putc_poll(char c) {
+void uart_putc_poll(char c) {
     volatile unsigned int *lsr = UART_LSR_K1(uart_base);
     volatile unsigned int *thr = UART_THR_K1(uart_base);
     while (!(*lsr & LSR_THRE))
@@ -286,8 +286,12 @@ void uart_async_putc(char c) {
 /* ---- Unified putc: async when interrupts enabled, polling otherwise ---- */
 
 void uart_putc(char c) {
-    uart_putc_poll(c);
+    if (uart_async_enabled)
+        uart_async_putc(c);
+    else
+        uart_putc_poll(c);
 }
+
 
 void uart_async_puts(const char *s) {
     while (*s)
