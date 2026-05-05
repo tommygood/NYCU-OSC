@@ -283,11 +283,6 @@ void uart_async_putc(char c) {
     uart_enable_tx_irq();
 }
 
-/* ---- Polling putc for use in syscall handlers (SIE=0) ---- */
-void uart_putc_poll_ext(char c) {
-    uart_putc_poll(c);
-}
-
 /* ---- Unified putc: async when interrupts enabled, polling otherwise ---- */
 
 void uart_putc(char c) {

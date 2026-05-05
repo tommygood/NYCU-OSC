@@ -119,10 +119,7 @@ static void handle_ecall(struct trap_frame *tf) {
             const char *buf = (const char *)tf->a0;
             long count = (long)tf->a1;
             for (long i = 0; i < count; i++) {
-                /* Use polling output to avoid TX buffer deadlock
-                 * (async TX needs interrupts, but SIE=0 in trap handler) */
-                extern void uart_putc_poll_ext(char c);
-                uart_putc_poll_ext(buf[i]);
+                uart_putc(buf[i]);
             }
             tf->a0 = (unsigned long)count;
         }

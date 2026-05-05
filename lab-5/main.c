@@ -304,14 +304,6 @@ static void cmd_exec(const char *arg) {
 
     /* Wait for the user program to finish */
     sys_waitpid((long)t->pid);
-
-    /* Drain any stale PLIC/UART state after user program exits */
-    extern int plic_claim(void);
-    extern void plic_complete(int irq);
-    extern void uart_flush_rx(void);
-    for (int irq; (irq = plic_claim()) != 0; )
-        plic_complete(irq);
-    uart_flush_rx();
 }
 
 /* ── Thread test (Basic Exercise 1) ──────────────────────────────────────── */
@@ -464,8 +456,7 @@ static void shell_run(void) {
         pos = 0;
 
         while (1) {
-            /* Use async getc with wfi - UART IRQ fills the buffer */
-            char c = uart_async_getc();
+            char c = uart_getc();
 
             if (c == '\r' || c == '\n') {
                 uart_puts("\r\n");
