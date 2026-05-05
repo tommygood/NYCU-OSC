@@ -177,6 +177,8 @@ extern void sbi_timer_init(void);
 
 #define NULL 0
 
+#define BUF_SIZE 128
+
 static void cmd_help(void) {
     uart_puts("Commands:\r\n"
               "  help          - this message\r\n"
@@ -283,16 +285,17 @@ static void exec_thread_fn(void) {
     enter_user_mode(&tf);
 }
 
+#define EXEC_FILENAME_MAX (BUF_SIZE - 5)  /* "exec " + filename fits in BUF_SIZE */
 static void cmd_exec(const char *arg) {
     if (!arg || *arg == '\0') { uart_puts("Usage: exec <file>\r\n"); return; }
     if (!g_initrd) { uart_puts("No initrd\r\n"); return; }
 
     struct exec_arg *ea = (struct exec_arg *)allocate(sizeof(struct exec_arg));
-    if (!ea) { uart_puts("Failed to allocate\r\n"); return; }
+    if (!ea) { uart_puts("Failed to allocate exec_arg\r\n"); return; }
 
     /* Copy filename */
     int i = 0;
-    while (arg[i] && i < 63) { ea->filename[i] = arg[i]; i++; }
+    while (arg[i] && i < EXEC_FILENAME_MAX) { ea->filename[i] = arg[i]; i++; }
     ea->filename[i] = '\0';
 
     g_exec_arg = ea;
@@ -301,6 +304,14 @@ static void cmd_exec(const char *arg) {
 
     /* Wait for the user program to finish */
     sys_waitpid((long)t->pid);
+
+    /* Drain any stale PLIC/UART state after user program exits */
+    extern int plic_claim(void);
+    extern void plic_complete(int irq);
+    extern void uart_flush_rx(void);
+    for (int irq; (irq = plic_claim()) != 0; )
+        plic_complete(irq);
+    uart_flush_rx();
 }
 
 /* ── Thread test (Basic Exercise 1) ──────────────────────────────────────── */
@@ -445,15 +456,16 @@ static void dispatch(char *cmd, char *arg) {
 }
 
 static void shell_run(void) {
-    char buf[128];
+    char buf[BUF_SIZE];
     int pos;
 
     while (1) {
-        uart_puts("\r\n$ ");
+        uart_puts("\r\nkernel $ ");
         pos = 0;
 
         while (1) {
-            char c = uart_getc();
+            /* Use async getc with wfi - UART IRQ fills the buffer */
+            char c = uart_async_getc();
 
             if (c == '\r' || c == '\n') {
                 uart_puts("\r\n");

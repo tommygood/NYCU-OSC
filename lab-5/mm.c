@@ -73,31 +73,31 @@ static size_t buddy_of(size_t idx, int order) { return idx ^ (1UL << order); } /
 static void log_add(size_t idx, int order) {
     if (!g_log_runtime) return;
     size_t end = idx + (1UL << order) - 1;
-    uart_puts("[+] Add page "); uart_putdec(idx); uart_puts(" to order "); uart_putdec(order);
-    uart_puts(". Range of pages: ["); uart_putdec(idx); uart_puts(", "); uart_putdec(end); uart_puts("]\r\n");
+    //uart_puts("[+] Add page "); uart_putdec(idx); uart_puts(" to order "); uart_putdec(order);
+    //uart_puts(". Range of pages: ["); uart_putdec(idx); uart_puts(", "); uart_putdec(end); uart_puts("]\r\n");
 }
 static void log_del(size_t idx, int order) {
     if (!g_log_runtime) return;
     size_t end = idx + (1UL << order) - 1;
-    uart_puts("[-] Remove page "); uart_putdec(idx); uart_puts(" from order "); uart_putdec(order);
-    uart_puts(". Range of pages: ["); uart_putdec(idx); uart_puts(", "); uart_putdec(end); uart_puts("]\r\n");
+    //uart_puts("[-] Remove page "); uart_putdec(idx); uart_puts(" from order "); uart_putdec(order);
+    //uart_puts(". Range of pages: ["); uart_putdec(idx); uart_puts(", "); uart_putdec(end); uart_puts("]\r\n");
 }
 static void log_split(size_t idx, int from, int to) {
-    uart_puts("[*] Split page "); uart_putdec(idx); uart_puts(" order "); uart_putdec(from);
-    uart_puts(" -> "); uart_putdec(to); uart_puts("\r\n");
+    //uart_puts("[*] Split page "); uart_putdec(idx); uart_puts(" order "); uart_putdec(from);
+    //uart_puts(" -> "); uart_putdec(to); uart_puts("\r\n");
 }
 static void log_merge(size_t a, size_t b, int order) {
-    uart_puts("[*] Buddy found! buddy idx: "); uart_putdec(b); uart_puts(" for page "); uart_putdec(a);
-    uart_puts(" with order "); uart_putdec(order); uart_puts("\r\n");
+    //uart_puts("[*] Buddy found! buddy idx: "); uart_putdec(b); uart_puts(" for page "); uart_putdec(a);
+    //uart_puts(" with order "); uart_putdec(order); uart_puts("\r\n");
 }
 
 void dump_free_lists(void) {
-    uart_puts("--- Free lists ---\r\n");
+    //uart_puts("--- Free lists ---\r\n");
     for (int i = MAX_ORDER; i >= 0; i--) {
         size_t count = 0;
         struct list_head *n = g_free_area[i].next;
         while (n != &g_free_area[i]) { count++; n = n->next; }
-        uart_puts("  order "); uart_putdec(i); uart_puts(": "); uart_putdec(count); uart_puts(" block(s)\r\n");
+        //uart_puts("  order "); uart_putdec(i); uart_puts(": "); uart_putdec(count); uart_puts(" block(s)\r\n");
     }
 }
 
@@ -185,8 +185,8 @@ static void memory_reserve(uint64_t start, uint64_t size, const char *name) {
     if (eidx > g_frame_count) eidx = g_frame_count;
 
     for (size_t i = sidx; i < eidx; i++) frame_mark_reserved(i);
-    uart_puts("[Reserve] "); uart_puts(name); uart_puts(": ["); uart_hex((unsigned long)start); uart_puts(", "); uart_hex((unsigned long)end);
-    uart_puts("). Range of pages: ["); uart_putdec(sidx); uart_puts(", "); uart_putdec(eidx); uart_puts(")\r\n");
+    //uart_puts("[Reserve] "); uart_puts(name); uart_puts(": ["); uart_hex((unsigned long)start); uart_puts(", "); uart_hex((unsigned long)end);
+    //uart_puts("). Range of pages: ["); uart_putdec(sidx); uart_puts(", "); uart_putdec(eidx); uart_puts(")\r\n");
 }
 
 static int page_order_for_size(size_t size) {
@@ -237,8 +237,8 @@ static void *page_alloc_order(int req_order) {
     g_frames[idx].pool_idx = -1;
     uintptr_t pa = idx_to_pa(idx);
 
-    uart_puts("[Page] Allocate "); uart_hex(pa); uart_puts(" at order "); uart_putdec(req_order);
-    uart_puts(", page "); uart_putdec(idx); uart_puts("\r\n");
+    //uart_puts("[Page] Allocate "); uart_hex(pa); uart_puts(" at order "); uart_putdec(req_order);
+    //uart_puts(", page "); uart_putdec(idx); uart_puts("\r\n");
     dump_free_lists();
     return (void *)pa;
 }
@@ -267,8 +267,8 @@ static void page_free_order(void *ptr, int order) {
     frame_add_free(idx, order);
     g_frames[idx].alloc_order = -1;
     g_frames[idx].pool_idx = -1;
-    uart_puts("[Page] Free "); uart_hex(idx_to_pa(idx)); uart_puts(" and add back to order "); uart_putdec(order);
-    uart_puts(", page "); uart_putdec(idx); uart_puts("\r\n");
+    //uart_puts("[Page] Free "); uart_hex(idx_to_pa(idx)); uart_puts(" and add back to order "); uart_putdec(order);
+    //uart_puts(", page "); uart_putdec(idx); uart_puts("\r\n");
     dump_free_lists();
 }
 
@@ -408,8 +408,8 @@ void *allocate(size_t size) {
     struct chunk *c = g_pools[pidx].free_list;
     g_pools[pidx].free_list = c->next;
 
-    uart_puts("[Chunk] Allocate "); uart_hex((unsigned long)(uintptr_t)c);
-    uart_puts(" at chunk size "); uart_putdec(g_pools[pidx].chunk_size); uart_puts("\r\n");
+    //uart_puts("[Chunk] Allocate "); uart_hex((unsigned long)(uintptr_t)c);
+    //uart_puts(" at chunk size "); uart_putdec(g_pools[pidx].chunk_size); uart_puts("\r\n");
     return (void *)c;
 }
 
@@ -437,8 +437,8 @@ void free(void *ptr) {
     c->next = g_pools[pool].free_list;
     g_pools[pool].free_list = c;
 
-    uart_puts("[Chunk] Free "); uart_hex((unsigned long)(uintptr_t)c);
-    uart_puts(" at chunk size "); uart_putdec(g_pools[pool].chunk_size); uart_puts("\r\n");
+    //uart_puts("[Chunk] Free "); uart_hex((unsigned long)(uintptr_t)c);
+    //uart_puts(" at chunk size "); uart_putdec(g_pools[pool].chunk_size); uart_puts("\r\n");
 
     // check if all chunks in this page are free, if so return page to buddy
     uintptr_t page_base = pa & ~(PAGE_SIZE - 1);

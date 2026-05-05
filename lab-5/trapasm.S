@@ -71,7 +71,9 @@ _save_context:
 
     /* Call C handler: do_trap(struct trap_frame *tf) */
     mv    a0, sp
+    mv    s5, sp          /* save trap frame pointer across do_trap */
     call  do_trap
+    mv    sp, s5          /* restore sp to trap frame (may have been changed by switch_to) */
 
     /* --- Return from trap --- */
 .global trap_return

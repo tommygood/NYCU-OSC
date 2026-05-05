@@ -107,9 +107,14 @@ static void reprogram_next(void) {
     if (timer_count > 0) {
         sbi_set_timer(timer_pool[timer_order[0]].expire);
     } else {
-        /* Default: 2 second periodic timer */
-        sbi_set_timer(rdtime() + 2 * timebase_freq);
+        /* Default: 1/32 second periodic timer for preemption */
+        sbi_set_timer(rdtime() + timebase_freq / 32);
     }
+}
+
+/* Ensure a timer interrupt is pending — call before returning to user mode */
+void timer_ensure_armed(void) {
+    sbi_set_timer(rdtime() + timebase_freq / 32);
 }
 
 /* ---- Core timer interrupt handler ---- */
@@ -169,8 +174,8 @@ void timer_init(void) {
     /* Clear any pending timer from OpenSBI before enabling STIE */
     sbi_set_timer((unsigned long)-1);
 
-    /* Schedule first timer interrupt 2 seconds from now */
-    sbi_set_timer(boot_time + 2 * timebase_freq);
+    /* Schedule first timer interrupt 1/32 second from now */
+    sbi_set_timer(boot_time + timebase_freq / 32);
 
     /* Enable timer interrupt: set STIE in sie (AFTER programming timer) */
     unsigned long stie = (1UL << 5);

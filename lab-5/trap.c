@@ -90,6 +90,7 @@ static void handle_ecall(struct trap_frame *tf) {
     struct task_struct *cur = get_current();
     cur->tf = tf;
 
+
     switch (syscall_nr) {
     case 0: /* getpid() */
         tf->a0 = (unsigned long)sys_getpid();
@@ -107,6 +108,7 @@ static void handle_ecall(struct trap_frame *tf) {
                     ;
                 asm volatile("csrci sstatus, 2");
                 buf[i] = uart_async_getc();
+                if (buf[i] == '\r') buf[i] = '\n';  /* CR → NL translation */
             }
             tf->a0 = (unsigned long)i;
         }
@@ -117,7 +119,10 @@ static void handle_ecall(struct trap_frame *tf) {
             const char *buf = (const char *)tf->a0;
             long count = (long)tf->a1;
             for (long i = 0; i < count; i++) {
-                uart_putc(buf[i]);
+                /* Use polling output to avoid TX buffer deadlock
+                 * (async TX needs interrupts, but SIE=0 in trap handler) */
+                extern void uart_putc_poll_ext(char c);
+                uart_putc_poll_ext(buf[i]);
             }
             tf->a0 = (unsigned long)count;
         }
@@ -194,7 +199,9 @@ void do_trap(struct trap_frame *tf) {
         switch (code) {
         case IRQ_S_TIMER:
             handle_timer_irq();
-            schedule();
+            /* Only preempt if interrupted from user mode (SPP=0) */
+            if (!(tf->sstatus & SSTATUS_SPP))
+                schedule();
             break;
         case IRQ_S_EXTERNAL:
             handle_external_irq();
@@ -225,10 +232,19 @@ void do_trap(struct trap_frame *tf) {
         }
     }
 
-    /* Bottom half: run deferred tasks with interrupts enabled */
-    process_pending_tasks();
+    /* Bottom half: run deferred tasks with interrupts enabled
+     * Only run for interrupt handlers — ecall handlers may call
+     * schedule/switch_to which interacts badly with nested interrupts
+     * during process_pending_tasks. */
+    if (is_interrupt)
+        process_pending_tasks();
 
     /* Unmask the device after tasks are done */
     if (pending_plic_irq)
         plic_complete(pending_plic_irq);
+
+    /* Ensure timer is armed before returning */
+    extern void timer_ensure_armed(void);
+    timer_ensure_armed();
+
 }

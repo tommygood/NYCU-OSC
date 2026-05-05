@@ -103,6 +103,10 @@ void schedule(void) {
     if (next == current) return;  /* no other runnable thread */
 
     switch_to(current, next);
+
+    /* Re-enable interrupts after resuming from switch_to.
+     * We may have been resumed from within a trap handler (SIE=0). */
+    asm volatile("csrsi sstatus, 2");
 }
 
 /* ── Kill zombies ────────────────────────────────────────────────────────── */
