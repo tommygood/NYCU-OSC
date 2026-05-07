@@ -138,7 +138,7 @@ void handle_timer_irq(void) {
     int fired = 0;
     while (timer_count > 0) {
         int idx = timer_order[0];
-        if (timer_pool[idx].expire > now)
+        if (timer_pool[idx].expire > now) // no timer expired yet
             break;
 
         /* Remove from sorted list */
@@ -154,10 +154,12 @@ void handle_timer_irq(void) {
 
     if (!fired) {
         /* No software timers fired - defer periodic print to bottom half */
+        // since only software timers will add the timer in timer pool, so if no software timer is fired, we can be sure that this interrupt is casued from default timer
         add_task(default_timer_print, 0, TIMER_TASK_PRIORITY);
     }
 
     /* Reprogram for next event */
+    // set timer for next software timer if exists, otherwise set a default timer for 1/32 second later to ensure we can get timer interrupts for preemption
     reprogram_next();
 }
 

@@ -115,12 +115,6 @@ switch_to:
     mv   tp, a1
     ret
 
-
-/* ── child_ret_from_fork ─────────────────────────────────────────────────
- * After fork, the child's ra is set to this function.
- * sp already points to the child's trap frame.
- * Jump to trap_return to restore context and sret to user mode.
- */
 /* ── enter_user_mode(struct trap_frame *tf) ─────────────────────────────
  * Set sp to the trap frame pointer and jump to trap_return.
  */
@@ -128,9 +122,3 @@ switch_to:
 enter_user_mode:
     mv   sp, a0
     j    trap_return
-
-
-.global child_ret_from_fork
-child_ret_from_fork:
-    /* sp is already set to point to child's trap frame by sys_fork */
-    j trap_return

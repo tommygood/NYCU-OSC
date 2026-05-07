@@ -105,10 +105,7 @@ static void handle_ecall(struct trap_frame *tf) {
             long count = (long)tf->a1;
             long i = 0;
             for (i = 0; i < count; i++) {
-                while (!uart_async_read_ready())
-                    ;
                 buf[i] = uart_async_getc();
-                if (buf[i] == '\r') buf[i] = '\n';  /* CR → NL translation */
             }
             tf->a0 = (unsigned long)i;
         }
@@ -119,7 +116,7 @@ static void handle_ecall(struct trap_frame *tf) {
             const char *buf = (const char *)tf->a0;
             long count = (long)tf->a1;
             for (long i = 0; i < count; i++) {
-                if (buf[i] == '\n') uart_putc('\r');
+                if (buf[i] == '\n') uart_putc('\r'); // move cursor at the top to prevent from staircase effect
                 uart_putc(buf[i]);
             }
             tf->a0 = (unsigned long)count;
@@ -134,6 +131,9 @@ static void handle_ecall(struct trap_frame *tf) {
                 /* exec succeeded; sepc and sp already updated by sys_exec */
                 /* Advance past ecall not needed since we set sepc directly */
                 return;
+            }
+            else {
+                uart_puts("[syscall] exec failed: ");
             }
         }
         break;
@@ -197,7 +197,7 @@ void do_trap(struct trap_frame *tf) {
         switch (code) {
         case IRQ_S_TIMER:
             handle_timer_irq();
-            schedule();
+            schedule(); // schedule for preemption after timer interrupt
             break;
         case IRQ_S_EXTERNAL:
             handle_external_irq();

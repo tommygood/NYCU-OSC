@@ -151,8 +151,6 @@ void thread_exit(void) {
     }
 
     schedule();
-    /* Should never reach here */
-    while (1);
 }
 
 /* ── Idle thread ─────────────────────────────────────────────────────────── */
@@ -225,8 +223,8 @@ long sys_fork(struct trap_frame *parent_tf) {
     /* No sepc relocation needed — child shares parent's program (no MMU) */
 
     /* Set up child's thread context to return through trap_return */
-    extern void child_ret_from_fork(void);
-    child->thread.ra = (unsigned long)child_ret_from_fork;
+    extern void trap_return(void);
+    child->thread.ra = (unsigned long)trap_return;
     /* Child's sp should point to its trap frame */
     child->thread.sp = (unsigned long)child_tf;
 
@@ -266,13 +264,6 @@ int sys_exec(const char *path) {
     tf->sepc = (unsigned long)prog;
     tf->sp = current->user_sp;
 
-    /* Clear SPP (return to U-mode), set SPIE (enable interrupts on sret) */
-    tf->sstatus &= ~SSTATUS_SPP;
-    tf->sstatus |= SSTATUS_SPIE;
-
-    /* Clear registers */
-    tf->a0 = 0;
-
     return 0;
 }
 
@@ -282,8 +273,6 @@ void sys_exit(int status) {
 }
 
 long sys_waitpid(long pid) {
-    struct task_struct *current = get_current();
-
     /* Find the target task */
     struct task_struct *target = 0;
     struct task_struct *p = run_queue;
@@ -301,6 +290,7 @@ long sys_waitpid(long pid) {
     if (target->state == TASK_ZOMBIE) return pid;
 
     /* Block current task until target exits */
+    struct task_struct *current = get_current();
     current->state = TASK_WAITING;
     current->wait_target = target;
     schedule();
