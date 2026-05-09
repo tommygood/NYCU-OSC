@@ -377,6 +377,13 @@ int mm_init(const void *fdt) {
     // reserve pages for g_frames
     memory_reserve((uint64_t)(uintptr_t)g_frames, g_frame_count * sizeof(struct frame), "Frame array");
 
+    // reserve pages for framebuffer (1920x1080x4 = ~8MB)
+#ifdef QEMU
+    memory_reserve(0x87000000ULL, 1920ULL * 1080 * 4, "Framebuffer");
+#else
+    memory_reserve(0x7f700000ULL, 1920ULL * 1080 * 4, "Framebuffer");
+#endif
+
     g_log_runtime = 0;
     // build array of g_free_area which contains multiple orders of blocks for buddy system
     buddy_build_from_free_frames();

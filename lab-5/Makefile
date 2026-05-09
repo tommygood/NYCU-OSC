@@ -5,8 +5,8 @@ OBJCOPY   = $(RISCV_GNU)-objcopy
 CFLAGS    = -mcmodel=medany -ffreestanding -nostdlib -g -Wall
 QEMU      ?= qemu-system-riscv64
 
-SUPPORT_SRCS = uart.c dtb.c string.c sbi.c mm.c plic.c timer.c trap.c thread.c
-SUPPORT_OBJS = uart.o dtb.o string.o sbi.o mm.o plic.o timer.o trap.o thread.o
+SUPPORT_SRCS = uart.c dtb.c string.c sbi.c mm.c plic.c timer.c trap.c thread.c video.c
+SUPPORT_OBJS = uart.o dtb.o string.o sbi.o mm.o plic.o timer.o trap.o thread.o video.o
 
 # ── User program (flat binary, placed in rootfs) ──────────────────────────
 user_prog:
@@ -36,6 +36,10 @@ run: kernel-qemu
 	$(QEMU) -M virt -m 4G -kernel kernel.bin \
 		-initrd initramfs.cpio -nographic -no-reboot
 
+run-fb: kernel-qemu
+	$(QEMU) -M virt -m 4G -kernel kernel.bin \
+		-initrd initramfs.cpio -serial stdio -device ramfb -display sdl -no-reboot
+
 # ── OrangePi RV2 FIT image ────────────────────────────────────────────────
 fit-kernel: kernel-board
 	mkimage -f kernel.its kernel.fit
@@ -48,4 +52,4 @@ initramfs:
 clean:
 	rm -f *.bin *.elf *.fit *.o
 
-.PHONY: kernel-qemu kernel-board run-pty run fit-kernel initramfs clean user_prog
+.PHONY: kernel-qemu kernel-board run-pty run run-fb fit-kernel initramfs clean user_prog

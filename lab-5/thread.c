@@ -3,6 +3,7 @@
  */
 #include "thread.h"
 #include "mm.h"
+#include "timer.h"
 
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
@@ -168,13 +169,7 @@ int sys_getpid(void) {
     return get_current()->pid;
 }
 
-/* Helper: memcpy */
-static void *k_memcpy(void *dst, const void *src, unsigned long n) {
-    unsigned char *d = (unsigned char *)dst;
-    const unsigned char *s = (const unsigned char *)src;
-    while (n--) *d++ = *s++;
-    return dst;
-}
+extern void *k_memcpy(void *dst, const void *src, unsigned long n);
 
 long sys_fork(struct trap_frame *parent_tf) {
     struct task_struct *parent = get_current();
@@ -324,4 +319,18 @@ int sys_stop(long pid) {
     }
 
     return -1;
+}
+
+/* ---- usleep: block current thread for a duration ---- */
+
+static void usleep_wakeup(void *arg) {
+    struct task_struct *task = (struct task_struct *)arg;
+    task->state = TASK_RUNNING;
+}
+
+void sys_usleep(unsigned long usec) {
+    struct task_struct *current = get_current();
+    current->state = TASK_WAITING;
+    add_timer(usleep_wakeup, current, usec);
+    schedule();
 }

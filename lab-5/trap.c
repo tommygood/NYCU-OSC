@@ -155,6 +155,25 @@ static void handle_ecall(struct trap_frame *tf) {
         tf->a0 = (unsigned long)sys_stop((long)tf->a0);
         break;
 
+    case 8: /* display(bmp_image, width, height) */
+        {
+            extern void video_display(unsigned int *bmp, unsigned int w, unsigned int h);
+            video_display((unsigned int *)tf->a0,
+                          (unsigned int)tf->a1,
+                          (unsigned int)tf->a2);
+            tf->a0 = 0;
+        }
+        break;
+
+    case 9: /* usleep(usec) */
+        {
+            unsigned int usec = (unsigned int)tf->a0;
+            extern void sys_usleep(unsigned long usec);
+            sys_usleep((unsigned long)usec);
+            tf->a0 = 0;
+        }
+        break;
+
     default:
         uart_puts("[syscall] unknown: ");
         uart_putdec(syscall_nr);

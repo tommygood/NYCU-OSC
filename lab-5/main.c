@@ -540,6 +540,10 @@ void kernel_main(void *fdt) {
     if (mm_init(fdt) == 0) uart_puts("MM ready.\r\n");
     else uart_puts("MM init failed.\r\n");
 
+    /* Initialize framebuffer */
+    extern void video_init(void);
+    video_init();
+
     /* Create idle thread (pid 0) and set tp */
     struct task_struct *idle_task = thread_create(idle);
     asm volatile("mv tp, %0" :: "r"(idle_task));
