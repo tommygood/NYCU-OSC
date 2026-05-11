@@ -180,8 +180,11 @@ void video_init(void) {
 
 void video_display(unsigned int *bmp_image, unsigned int width, unsigned int height) {
     unsigned int *fb = (unsigned int *)FB_BASE;
+    /* align the image to the center of screen */
     int start_x = ((int)FB_WIDTH - (int)width) / 2;
     int start_y = ((int)FB_HEIGHT - (int)height) / 2;
+
+    /* copy row by row from bmp to frame buffer, and flush dcache for each row to make sure the display can get the updated data in time */
     for (int y = 0; y < (int)height; y++) {
         unsigned int *dst = fb + (start_y + y) * FB_WIDTH + start_x;
         unsigned int *src = bmp_image + y * (int)width;

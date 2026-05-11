@@ -102,20 +102,16 @@ void add_timer(timer_callback_t callback, void *arg, unsigned long duration_us) 
     }
 }
 
-/* Reprogram hardware timer for the next earliest software timer, or 2s periodic */
+/* Reprogram hardware timer: use the earlier of next software timer or 1/32s */
 static void reprogram_next(void) {
-    if (timer_count > 0) {
+    unsigned long preempt = rdtime() + timebase_freq / 32;
+    if (timer_count > 0 && timer_pool[timer_order[0]].expire < preempt) {
         sbi_set_timer(timer_pool[timer_order[0]].expire);
     } else {
-        /* Default: 1/32 second periodic timer for preemption */
-        sbi_set_timer(rdtime() + timebase_freq / 32);
+        sbi_set_timer(preempt);
     }
 }
 
-/* Ensure a timer interrupt is pending — call before returning to user mode */
-void timer_ensure_armed(void) {
-    sbi_set_timer(rdtime() + timebase_freq / 32);
-}
 
 /* ---- Core timer interrupt handler ---- */
 

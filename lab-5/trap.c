@@ -269,10 +269,6 @@ void do_trap(struct trap_frame *tf) {
     if (pending_plic_irq)
         plic_complete(pending_plic_irq);
 
-    /* Ensure timer is armed before returning */
-    extern void timer_ensure_armed(void);
-    timer_ensure_armed();
-
     /* Check for pending signals before returning to user mode */
     check_pending_signal(tf);
 }
