@@ -158,8 +158,8 @@ static void flush_dcache(void *addr, unsigned long len) {
     for (unsigned long line = start; line < (unsigned long)addr + len;
          line += CACHE_BLOCK_SIZE) {
         cbo_flush(line);
-        __sync_synchronize();
     }
+    __sync_synchronize();
 }
 
 void video_init(void) {
