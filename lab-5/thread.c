@@ -84,6 +84,10 @@ struct task_struct *thread_create(void (*fn)()) {
     task->tf = 0;
     task->wait_target = 0;
     task->entry_fn = fn;
+    for (int i = 0; i < MAX_SIG; i++) task->sig_handlers[i] = 0;
+    task->pending_sig = -1;
+    task->saved_tf = 0;
+    task->sig_stack = 0;
 
     /* Set up context: ra = thread_entry, sp = top of stack */
     task->thread.ra = (unsigned long)thread_entry;
@@ -193,6 +197,10 @@ long sys_fork(struct trap_frame *parent_tf) {
     child->prog = parent->prog;
     child->prog_size = parent->prog_size;
     child->wait_target = 0;
+    for (int i = 0; i < MAX_SIG; i++) child->sig_handlers[i] = parent->sig_handlers[i];
+    child->pending_sig = -1;
+    child->saved_tf = 0;
+    child->sig_stack = 0;
 
     /* Copy parent's kernel stack */
     k_memcpy(kstack, (void *)parent->stack, STACK_SIZE);
@@ -333,4 +341,102 @@ void sys_usleep(unsigned long usec) {
     current->state = TASK_WAITING;
     add_timer(usleep_wakeup, current, usec);
     schedule();
+}
+
+/* ---- Signal handling ---- */
+
+unsigned long sys_signal(int signum, void (*handler)()) {
+    if (signum < 0 || signum >= MAX_SIG) return 0;
+    struct task_struct *current = get_current();
+    unsigned long old = (unsigned long)current->sig_handlers[signum];
+    current->sig_handlers[signum] = handler;
+    return old;
+}
+
+int sys_kill(int pid, int signum) {
+    if (signum < 0 || signum >= MAX_SIG) return -1;
+    struct task_struct *p = run_queue;
+    if (!p) return -1;
+    struct task_struct *start = p;
+    while (1) {
+        if (p->pid == pid) {
+            if (p->sig_handlers[signum]) {
+                p->pending_sig = signum;
+            } else {
+                /* Default action: terminate */
+                p->state = TASK_ZOMBIE;
+                /* Wake up any waiters */
+                struct task_struct *q = run_queue;
+                struct task_struct *qs = q;
+                while (1) {
+                    if (q->state == TASK_WAITING && q->wait_target == p)
+                        q->state = TASK_RUNNING;
+                    q = q->next;
+                    if (q == qs) break;
+                }
+            }
+            return 0;
+        }
+        p = p->next;
+        if (p == start) break;
+    }
+    return -1;
+}
+
+void sys_sigreturn(struct trap_frame *tf) {
+    struct task_struct *current = get_current();
+    uart_puts("[sigreturn] pid=");
+    uart_putdec((unsigned long)current->pid);
+    uart_puts("\r\n");
+
+    /* Restore saved user context */
+    if (current->saved_tf) {
+        k_memcpy(tf, current->saved_tf, sizeof(struct trap_frame));
+        free(current->saved_tf);
+        current->saved_tf = 0;
+    }
+    /* Free signal stack */
+    if (current->sig_stack) {
+        free((void *)current->sig_stack);
+        current->sig_stack = 0;
+    }
+}
+
+/*
+ * Check for pending signals before returning to user mode.
+ * Called from do_trap after handling the trap.
+ */
+void check_pending_signal(struct trap_frame *tf) {
+    struct task_struct *current = get_current();
+    if (current->pending_sig < 0) return;
+
+    int sig = current->pending_sig;
+    current->pending_sig = -1;
+
+    void (*handler)() = current->sig_handlers[sig];
+    if (!handler) return;
+
+    /* Save current user context */
+    current->saved_tf = (struct trap_frame *)allocate(sizeof(struct trap_frame));
+    if (!current->saved_tf) return;
+    k_memcpy(current->saved_tf, tf, sizeof(struct trap_frame));
+
+    /* Allocate signal handler stack */
+    void *sig_stack = allocate(SIG_STACK_SIZE);
+    if (!sig_stack) { free(current->saved_tf); current->saved_tf = 0; return; }
+    current->sig_stack = (unsigned long)sig_stack;
+
+    /* Build sigreturn trampoline on signal stack top */
+    /* The trampoline: li a7, 11; ecall */
+    unsigned long stack_top = (unsigned long)sig_stack + SIG_STACK_SIZE;
+    unsigned int *trampoline = (unsigned int *)(stack_top - 8); // a riscv instruction is 4 bytes, we need 2 instructions for the trampoline
+    trampoline[0] = 0x00b00893;  /* li a7, 11 */
+    trampoline[1] = 0x00000073;  /* ecall */
+    /* fence.i to flush I-cache */
+    asm volatile(".4byte 0x0000100F" ::: "memory");
+
+    /* Redirect execution to signal handler */
+    tf->sepc = (unsigned long)handler;
+    tf->sp = (unsigned long)trampoline;  /* stack below trampoline */
+    tf->ra = (unsigned long)trampoline;  /* return to trampoline */
 }

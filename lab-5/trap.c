@@ -174,6 +174,18 @@ static void handle_ecall(struct trap_frame *tf) {
         }
         break;
 
+    case 10: /* signal(signum, handler) */
+        tf->a0 = sys_signal((int)tf->a0, (void (*)())tf->a1);
+        break;
+
+    case 11: /* sigreturn() */
+        sys_sigreturn(tf);
+        return; /* don't advance sepc — restored from saved context */
+
+    case 12: /* kill(pid, signum) */
+        tf->a0 = (unsigned long)sys_kill((int)tf->a0, (int)tf->a1);
+        break;
+
     default:
         uart_puts("[syscall] unknown: ");
         uart_putdec(syscall_nr);
@@ -261,4 +273,6 @@ void do_trap(struct trap_frame *tf) {
     extern void timer_ensure_armed(void);
     timer_ensure_armed();
 
+    /* Check for pending signals before returning to user mode */
+    check_pending_signal(tf);
 }

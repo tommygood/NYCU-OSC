@@ -15,6 +15,8 @@ extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 
 /* ---- Framebuffer parameters ---- */
+// The size of framebuffer is based on connected monitor,
+// We have to make sure this paras are larger than or equal to the actual framebuffer size, otherwise the display may be corrupted.
 
 #define FB_WIDTH  1920
 #define FB_HEIGHT 1080
