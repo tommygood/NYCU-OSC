@@ -1,3 +1,4 @@
-## 已知問題
-1. 無法從 keyboard input 到 orange pi shell with uart :
-    - sol : 每次重新 flash micro sd card 後，要重新拔掉 uart to usb adapter 
+## Refs
+- https://nycu-caslab.github.io/OSC2026/index.html
+- https://people.cs.nycu.edu.tw/~ttyeh/course/2026_Spring/IOC5226/outline.html
+- https://github.com/nycu-caslab/OSC-2026-Exercise/tree/main
