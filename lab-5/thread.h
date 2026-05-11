@@ -39,6 +39,7 @@ struct task_struct {
     struct task_struct *prev;
     struct task_struct *wait_target; /* task we are waiting on */
     void (*entry_fn)();              /* function to run on first schedule */
+    int pending_timer;               /* has a pending usleep timer */
     /* Signal handling */
     void (*sig_handlers[MAX_SIG])(); /* registered signal handlers */
     int pending_sig;                 /* pending signal number, -1 if none. This is fine since we don't need to handle nested signal handler */

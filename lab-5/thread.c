@@ -84,6 +84,7 @@ struct task_struct *thread_create(void (*fn)()) {
     task->tf = 0;
     task->wait_target = 0;
     task->entry_fn = fn;
+    task->pending_timer = 0;
     for (int i = 0; i < MAX_SIG; i++) task->sig_handlers[i] = 0;
     task->pending_sig = -1;
     task->saved_tf = 0;
@@ -125,7 +126,7 @@ void kill_zombies(void) {
     struct task_struct *start = p;
     while (p) {
         struct task_struct *next = p->next;
-        if (p->state == TASK_ZOMBIE) {
+        if (p->state == TASK_ZOMBIE && !p->pending_timer) {
             dequeue(p);
             if (p->stack) free((void *)p->stack);
             if (p->user_stack) free((void *)p->user_stack);
@@ -197,6 +198,7 @@ long sys_fork(struct trap_frame *parent_tf) {
     child->prog = parent->prog;
     child->prog_size = parent->prog_size;
     child->wait_target = 0;
+    child->pending_timer = 0;
     for (int i = 0; i < MAX_SIG; i++) child->sig_handlers[i] = parent->sig_handlers[i];
     child->pending_sig = -1;
     child->saved_tf = 0;
@@ -333,12 +335,15 @@ int sys_stop(long pid) {
 
 static void usleep_wakeup(void *arg) {
     struct task_struct *task = (struct task_struct *)arg;
-    task->state = TASK_RUNNING;
+    task->pending_timer = 0;
+    if (task->state == TASK_WAITING)
+        task->state = TASK_RUNNING;
 }
 
 void sys_usleep(unsigned long usec) {
     struct task_struct *current = get_current();
     current->state = TASK_WAITING;
+    current->pending_timer = 1;
     add_timer(usleep_wakeup, current, usec);
     schedule();
 }
