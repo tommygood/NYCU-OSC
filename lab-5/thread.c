@@ -81,7 +81,6 @@ struct task_struct *thread_create(void (*fn)()) {
     task->user_stack = 0;
     task->prog = 0;
     task->prog_size = 0;
-    task->tf = 0;
     task->wait_target = 0;
     task->entry_fn = fn;
     task->pending_timer = 0;
@@ -210,7 +209,6 @@ long sys_fork(struct trap_frame *parent_tf) {
     /* Calculate the trap frame offset in the new kernel stack */
     unsigned long tf_offset = (unsigned long)parent_tf - parent->stack;
     struct trap_frame *child_tf = (struct trap_frame *)((unsigned long)kstack + tf_offset);
-    child->tf = child_tf;
 
     /* Child's fork returns 0, and set tp to child task */
     child_tf->a0 = 0;
@@ -237,7 +235,7 @@ long sys_fork(struct trap_frame *parent_tf) {
     return child->pid;
 }
 
-int sys_exec(const char *path) {
+int sys_exec(const char *path, struct trap_frame *tf) {
     const unsigned char *data;
     int size;
     if (initrd_find_file(path, &data, &size) != 0)
@@ -265,7 +263,6 @@ int sys_exec(const char *path) {
     current->user_sp = (unsigned long)ustack + USER_STACK_SIZE;
 
     /* Set up trap frame for returning to user mode */
-    struct trap_frame *tf = current->tf;
     tf->sepc = (unsigned long)prog;
     tf->sp = current->user_sp;
 
@@ -420,6 +417,8 @@ void check_pending_signal(struct trap_frame *tf) {
 
     void (*handler)() = current->sig_handlers[sig];
     if (!handler) return;
+
+    /* run the user signal handler in a new context on the signal handler stack */
 
     /* Save current user context */
     current->saved_tf = (struct trap_frame *)allocate(sizeof(struct trap_frame));

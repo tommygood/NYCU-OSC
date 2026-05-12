@@ -278,8 +278,6 @@ static void exec_thread_fn(void) {
     tf.tp = (unsigned long)cur;  /* preserve task pointer */
     tf.sstatus = SSTATUS_SPIE;  /* SPP=0 (U-mode), SPIE=1 */
 
-    cur->tf = &tf;
-
     /* Enter user mode via trap_return */
     extern void enter_user_mode(struct trap_frame *tf);
     enter_user_mode(&tf);

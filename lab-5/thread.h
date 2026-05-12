@@ -34,7 +34,6 @@ struct task_struct {
     unsigned long user_stack;     /* user stack base (for free) */
     unsigned long prog;           /* user program base (for free/fork) */
     unsigned long prog_size;      /* user program size */
-    struct trap_frame *tf;        /* pointer to trap frame on kernel stack */
     struct task_struct *next;
     struct task_struct *prev;
     struct task_struct *wait_target; /* task we are waiting on */
@@ -58,7 +57,7 @@ void idle(void);
 /* Process API */
 int sys_getpid(void);
 long sys_fork(struct trap_frame *tf);
-int sys_exec(const char *path);
+int sys_exec(const char *path, struct trap_frame *tf);
 void sys_exit(int status);
 long sys_waitpid(long pid);
 int sys_stop(long pid);

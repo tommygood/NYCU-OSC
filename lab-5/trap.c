@@ -89,10 +89,6 @@ extern unsigned long k_strlen(const char *s);
 static void handle_ecall(struct trap_frame *tf) {
     unsigned long syscall_nr = tf->a7;
 
-    /* Save trap frame pointer in current task for fork/exec */
-    struct task_struct *cur = get_current();
-    cur->tf = tf;
-
     /* Enable interrupts so UART TX/RX and timer work during syscalls */
     asm volatile("csrsi sstatus, 2");
 
@@ -129,7 +125,7 @@ static void handle_ecall(struct trap_frame *tf) {
     case 3: /* exec(path) */
         {
             const char *path = (const char *)tf->a0;
-            tf->a0 = (unsigned long)sys_exec(path);
+            tf->a0 = (unsigned long)sys_exec(path, tf);
             if ((int)tf->a0 == 0) {
                 /* exec succeeded; sepc and sp already updated by sys_exec */
                 /* Advance past ecall not needed since we set sepc directly */
