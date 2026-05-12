@@ -52,6 +52,9 @@ void add_task(task_callback_t callback, void *arg, int priority) {
 }
 
 static void process_pending_tasks(void) {
+    // disable interrupt before accessing shared task queue
+    asm volatile("csrci sstatus, 2");
+
     while (1) {
         int idx = -1;
         for (int i = task_count - 1; i >= 0; i--) {
@@ -258,9 +261,6 @@ void do_trap(struct trap_frame *tf) {
             break;
         }
     }
-
-    /* Disable interrupts before accessing shared task queue */
-    asm volatile("csrci sstatus, 2");
 
     /* Bottom half: run deferred tasks (manages SIE internally) */
     process_pending_tasks();
