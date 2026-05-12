@@ -53,6 +53,7 @@ void schedule(void);
 void kill_zombies(void);
 struct task_struct *get_current(void);
 void idle(void);
+void list_processes(void);
 
 /* Process API */
 int sys_getpid(void);

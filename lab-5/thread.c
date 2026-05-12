@@ -8,6 +8,7 @@
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_putdec(unsigned long n);
+
 extern int k_strcmp(const char *a, const char *b);
 
 /* initrd helpers (defined in main.c) */
@@ -156,6 +157,33 @@ void thread_exit(void) {
     }
 
     schedule();
+}
+
+/* ── List all processes ──────────────────────────────────────────────────── */
+
+void list_processes(void) {
+    if (!run_queue) { uart_puts("No processes\r\n"); return; }
+    static const char *state_names[] = { "RUNNING", "ZOMBIE", "WAITING" };
+    struct task_struct *p = run_queue;
+    struct task_struct *start = p;
+    uart_puts("PID  STATE    TIMER\r\n");
+    while (1) {
+        uart_puts(" ");
+        uart_putdec((unsigned long)p->pid);
+        uart_puts("   ");
+        if (p->state >= 0 && p->state <= 2)
+            uart_puts(state_names[p->state]);
+        else {
+            uart_puts("UNKNOWN(");
+            uart_putdec((unsigned long)p->state);
+            uart_puts(")");
+        }
+        uart_puts("  ");
+        uart_putdec((unsigned long)p->pending_timer);
+        uart_puts("\r\n");
+        p = p->next;
+        if (p == start) break;
+    }
 }
 
 /* ── Idle thread ─────────────────────────────────────────────────────────── */

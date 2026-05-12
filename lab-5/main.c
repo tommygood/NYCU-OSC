@@ -29,7 +29,6 @@ typedef unsigned long      size_t;
 
 /* ── Globals ─────────────────────────────────────────────────────────────── */
 unsigned long saved_hart_id;
-
 static const void *g_fdt    = 0;
 static const void *g_initrd = 0;
 
@@ -438,6 +437,7 @@ static void dispatch(char *cmd, char *arg) {
     else if (k_strcmp(cmd, "timer")       == 0) cmd_timer();
     else if (k_strcmp(cmd, "setTimeout")  == 0) cmd_settimeout(arg);
     else if (k_strcmp(cmd, "bootloader")  == 0) cmd_bootloader();
+    else if (k_strcmp(cmd, "ps")          == 0) list_processes();
     else if (cmd[0] != '\0') {
         uart_puts("Unknown: ");
         uart_puts(cmd);

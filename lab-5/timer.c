@@ -73,6 +73,10 @@ static void timer_insert_sorted(int idx) {
 }
 
 void add_timer(timer_callback_t callback, void *arg, unsigned long duration_us) {
+    /* Save and disable interrupts to protect timer_order/timer_count */
+    unsigned long sstatus;
+    asm volatile("csrrc %0, sstatus, 2" : "=r"(sstatus));
+
     /* Find a free slot */
     int idx = -1;
     for (int i = 0; i < MAX_TIMERS; i++) {
@@ -82,6 +86,8 @@ void add_timer(timer_callback_t callback, void *arg, unsigned long duration_us) 
         }
     }
     if (idx < 0) {
+        /* Restore SIE before printing */
+        if (sstatus & 2) asm volatile("csrsi sstatus, 2");
         uart_puts("add_timer: no free slots\r\n");
         return;
     }
@@ -100,6 +106,9 @@ void add_timer(timer_callback_t callback, void *arg, unsigned long duration_us) 
     if (timer_order[0] == idx) {
         sbi_set_timer(timer_pool[idx].expire);
     }
+
+    /* Restore previous SIE state */
+    if (sstatus & 2) asm volatile("csrsi sstatus, 2");
 }
 
 /* Reprogram hardware timer: use the earlier of next software timer or 1/32s */

@@ -226,9 +226,16 @@ void do_trap(struct trap_frame *tf) {
     if (is_interrupt) {
         switch (code) {
         case IRQ_S_TIMER:
+        {
+            static int in_timer_schedule = 0;
             handle_timer_irq();
-            schedule(); // schedule for preemption after timer interrupt
+            if (!in_timer_schedule) {
+                in_timer_schedule = 1;
+                schedule();
+                in_timer_schedule = 0;
+            }
             break;
+        }
         case IRQ_S_EXTERNAL:
             handle_external_irq();
             break;
