@@ -42,7 +42,7 @@ unsigned long timer_get_seconds(void) {
 
 /* ---- Timer multiplexing (sorted linked list) ---- */
 
-#define MAX_TIMERS 32
+#define MAX_TIMERS 128
 
 struct timer_entry {
     unsigned long       expire;   /* absolute tick count */
