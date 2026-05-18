@@ -179,6 +179,11 @@ void video_init(void) {
 /* ---- Display function (shared) ---- */
 
 void video_display(unsigned int *bmp_image, unsigned int width, unsigned int height) {
+    if (width > (unsigned int)FB_WIDTH || height > (unsigned int)FB_HEIGHT) {
+      uart_puts("video: width or height exceeds framebuffer size\r\n");
+      return;
+    }
+
     unsigned int *fb = (unsigned int *)FB_BASE;
     /* align the image to the center of screen */
     int start_x = ((int)FB_WIDTH - (int)width) / 2;
