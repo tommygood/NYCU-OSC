@@ -4,6 +4,7 @@
 #include "thread.h"
 #include "mm.h"
 #include "timer.h"
+#include "vm.h"
 
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
@@ -82,6 +83,7 @@ struct task_struct *thread_create(void (*fn)()) {
     task->user_stack = 0;
     task->prog = 0;
     task->prog_size = 0;
+    task->pgd = 0;
     task->wait_target = 0;
     task->entry_fn = fn;
     task->pending_timer = 0;
@@ -110,6 +112,12 @@ void schedule(void) {
 
     if (next == current) return;  /* no other runnable thread */
 
+    /* Switch address space */
+    if (next->pgd)
+        switch_mm(next->pgd);
+    else
+        switch_mm(get_kernel_pgd());
+
     switch_to(current, next);
 
     /* Re-enable interrupts after resuming from switch_to.
@@ -128,9 +136,9 @@ void kill_zombies(void) {
         struct task_struct *next = p->next;
         if (p->state == TASK_ZOMBIE && !p->pending_timer) {
             dequeue(p);
+            if (p->pgd) { free_user_pgd(p->pgd); p->pgd = 0; }
             if (p->stack) free((void *)p->stack);
-            if (p->user_stack) free((void *)p->user_stack);
-            if (p->prog) free((void *)p->prog);
+            /* Don't free user_stack/prog here — free_user_pgd freed the physical pages */
             free(p);
         }
         p = next;
@@ -212,24 +220,43 @@ long sys_fork(struct trap_frame *parent_tf) {
     void *kstack = allocate(STACK_SIZE);
     if (!kstack) { free(child); return -1; }
 
-    /* Allocate user stack for child */
-    void *ustack = allocate(USER_STACK_SIZE);
-    if (!ustack) { free(kstack); free(child); return -1; }
+    /* Allocate user program and stack pages (separate physical pages) */
+    void *child_prog = allocate(parent->prog_size);
+    if (!child_prog) { free(kstack); free(child); return -1; }
+    void *child_ustack = allocate(USER_STACK_SIZE);
+    if (!child_ustack) { free(child_prog); free(kstack); free(child); return -1; }
+
+    /* Copy parent's program and user stack to child's physical pages */
+    k_memcpy(child_prog, (void *)parent->prog, parent->prog_size);
+    k_memcpy(child_ustack, (void *)parent->user_stack, USER_STACK_SIZE);
 
     child->pid = nr_threads++;
     child->state = TASK_RUNNING;
     child->stack = (unsigned long)kstack;
     child->kernel_sp = (unsigned long)kstack + STACK_SIZE;
-    child->user_stack = (unsigned long)ustack;
-    /* Share parent's program (no MMU, same physical address) */
-    child->prog = parent->prog;
+    child->user_stack = (unsigned long)child_ustack;
+    child->prog = (unsigned long)child_prog;
     child->prog_size = parent->prog_size;
+    child->user_sp = USER_STACK_TOP;
     child->wait_target = 0;
     child->pending_timer = 0;
     for (int i = 0; i < MAX_SIG; i++) child->sig_handlers[i] = parent->sig_handlers[i];
     child->pending_sig = -1;
     child->saved_tf = 0;
     child->sig_stack = 0;
+
+    /* Create child's page table with kernel mappings */
+    child->pgd = create_user_pgd();
+    if (!child->pgd) {
+        free(child_ustack); free(child_prog); free(kstack); free(child);
+        return -1;
+    }
+
+    /* Map child's own physical pages at the same user VAs */
+    map_pages(child->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)child_prog),
+              parent->prog_size, PROT_USER_RWX);
+    map_pages(child->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)child_ustack),
+              USER_STACK_SIZE, PROT_USER_RW);
 
     /* Copy parent's kernel stack */
     k_memcpy(kstack, (void *)parent->stack, STACK_SIZE);
@@ -242,21 +269,11 @@ long sys_fork(struct trap_frame *parent_tf) {
     child_tf->a0 = 0;
     child_tf->tp = (unsigned long)child;
     child_tf->sepc += 4;  /* advance past ecall instruction */
-
-    /* Adjust user sp: calculate offset from parent user stack base */
-    if (parent->user_stack && parent_tf->sp) {
-        unsigned long user_sp_offset = parent_tf->sp - parent->user_stack;
-        child_tf->sp = (unsigned long)ustack + user_sp_offset;
-        /* Copy user stack contents */
-        k_memcpy(ustack, (void *)parent->user_stack, USER_STACK_SIZE);
-    }
-
-    /* No sepc relocation needed — child shares parent's program (no MMU) */
+    /* User sp stays the same VA — child has its own page table mapping */
 
     /* Set up child's thread context to return through trap_return */
     extern void trap_return(void);
     child->thread.ra = (unsigned long)trap_return;
-    /* Child's sp should point to its trap frame */
     child->thread.sp = (unsigned long)child_tf;
 
     enqueue(child);
@@ -271,28 +288,42 @@ int sys_exec(const char *path, struct trap_frame *tf) {
 
     struct task_struct *current = get_current();
 
-    /* Free old program if any */
-    if (current->prog) free((void *)current->prog);
-    if (current->user_stack) free((void *)current->user_stack);
+    /* Free old page table and mappings */
+    if (current->pgd) free_user_pgd(current->pgd);
 
-    /* Allocate new program memory */
+    /* Create new page table */
+    current->pgd = create_user_pgd();
+    if (!current->pgd) return -1;
+
+    /* Allocate and copy program */
     void *prog = allocate((unsigned long)size);
-    if (!prog) return -1;
+    if (!prog) { free_user_pgd(current->pgd); current->pgd = 0; return -1; }
     k_memcpy(prog, data, (unsigned long)size);
-    asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
 
-    /* Allocate new user stack */
+    /* Allocate user stack */
     void *ustack = allocate(USER_STACK_SIZE);
-    if (!ustack) { free(prog); return -1; }
+    if (!ustack) { free(prog); free_user_pgd(current->pgd); current->pgd = 0; return -1; }
 
     current->prog = (unsigned long)prog;
     current->prog_size = (unsigned long)size;
     current->user_stack = (unsigned long)ustack;
-    current->user_sp = (unsigned long)ustack + USER_STACK_SIZE;
+    current->user_sp = USER_STACK_TOP;
+
+    /* Map user code at VA 0x0 (read + execute) */
+    map_pages(current->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
+              (unsigned long)size, PROT_USER_RWX);
+
+    /* Map user stack at VA 0x3ffffff000 (read + write) */
+    map_pages(current->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
+              USER_STACK_SIZE, PROT_USER_RW);
+
+    /* Switch to new address space */
+    switch_mm(current->pgd);
+    asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
 
     /* Set up trap frame for returning to user mode */
-    tf->sepc = (unsigned long)prog;
-    tf->sp = current->user_sp;
+    tf->sepc = USER_CODE_VA;
+    tf->sp = USER_STACK_TOP;
 
     return 0;
 }

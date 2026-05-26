@@ -28,8 +28,11 @@
 #define PTE_D  (1UL << 7)   /* Dirty       */
 
 /* Protection combos */
-#define PROT_KERNEL  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
-#define PROT_MMIO    (PTE_V | PTE_R | PTE_W | PTE_G | PTE_A | PTE_D)
+#define PROT_KERNEL    (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
+#define PROT_MMIO      (PTE_V | PTE_R | PTE_W | PTE_G | PTE_A | PTE_D)
+#define PROT_USER_RX   (PTE_V | PTE_R | PTE_X | PTE_U | PTE_A | PTE_D)
+#define PROT_USER_RW   (PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
+#define PROT_USER_RWX  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
 
 /* SATP helpers */
 #define SATP_SV39           (8UL << 60)
@@ -57,5 +60,15 @@
 /* VM API */
 void setup_vm(const void *fdt);
 void drop_identity_map(void);
+
+/* Get kernel PGD (for switching back to kernel address space) */
+unsigned long *get_kernel_pgd(void);
+
+/* Per-process page table API */
+unsigned long *create_user_pgd(void);
+void free_user_pgd(unsigned long *pgd);
+void map_pages(unsigned long *pgd, unsigned long va, unsigned long pa,
+               unsigned long size, unsigned long prot);
+void switch_mm(unsigned long *pgd);
 
 #endif /* VM_H */

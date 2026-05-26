@@ -145,6 +145,10 @@ void setup_vm(const void *fdt)
     );
 }
 
+unsigned long *get_kernel_pgd(void) {
+    return pgd;
+}
+
 void drop_identity_map(void)
 {
     unsigned long phys_pgd_idx = PHYS_BASE >> PGD_SHIFT;
@@ -156,4 +160,105 @@ void drop_identity_map(void)
         pgd[mmio_gib_indices[i]] = 0;
 
     asm volatile("sfence.vma" ::: "memory");
+}
+
+/* ── Per-process page table support ──────────────────────────────────────── */
+
+extern void *allocate(unsigned long size);
+extern void free(void *ptr);
+extern void *k_memset(void *s, int c, unsigned long n);
+
+/*
+ * Create a new PGD for a user process.
+ * Copies the kernel mappings (upper half) from the kernel PGD.
+ */
+unsigned long *create_user_pgd(void) {
+    unsigned long *user_pgd = (unsigned long *)allocate(PAGE_SIZE);
+    if (!user_pgd) return 0;
+    k_memset(user_pgd, 0, PAGE_SIZE);
+    /* Copy kernel mappings (PGD[256..511]) from kernel PGD */
+    for (int i = KERNEL_PGD_INDEX; i < ENTRIES_PER_TABLE; i++)
+        user_pgd[i] = pgd[i];
+    return user_pgd;
+}
+
+/*
+ * Walk the 3-level page table, allocating intermediate tables as needed.
+ * Maps a single 4KB page: VA → PA with given protection flags.
+ */
+static void pagewalk(unsigned long *user_pgd, unsigned long va,
+                     unsigned long pa, unsigned long prot) {
+    /* Level 2: PGD */
+    int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
+    if (!(user_pgd[vpn2] & PTE_V)) {
+        unsigned long *pmd = (unsigned long *)allocate(PAGE_SIZE);
+        if (!pmd) return;
+        k_memset(pmd, 0, PAGE_SIZE);
+        user_pgd[vpn2] = MAKE_PTE(VA_TO_PA((unsigned long)pmd), PTE_V);
+    }
+    unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
+
+    /* Level 1: PMD */
+    int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
+    if (!(pmd[vpn1] & PTE_V)) {
+        unsigned long *pte = (unsigned long *)allocate(PAGE_SIZE);
+        if (!pte) return;
+        k_memset(pte, 0, PAGE_SIZE);
+        pmd[vpn1] = MAKE_PTE(VA_TO_PA((unsigned long)pte), PTE_V);
+    }
+    unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
+
+    /* Level 0: PTE (leaf) */
+    int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
+    pte[vpn0] = MAKE_PTE(pa, prot);
+}
+
+/*
+ * Map a range of pages in a user process's page table.
+ */
+void map_pages(unsigned long *user_pgd, unsigned long va, unsigned long pa,
+               unsigned long size, unsigned long prot) {
+    for (unsigned long off = 0; off < size; off += PAGE_SIZE)
+        pagewalk(user_pgd, va + off, pa + off, prot);
+}
+
+/*
+ * Free a user PGD and all intermediate PMD/PTE tables + mapped physical pages.
+ */
+void free_user_pgd(unsigned long *user_pgd) {
+    if (!user_pgd) return;
+    /* Walk user-space entries (PGD[0..255]) */
+    for (int i = 0; i < KERNEL_PGD_INDEX; i++) {
+        if (!(user_pgd[i] & PTE_V)) continue;
+        unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[i] >> 10) << 12);
+        for (int j = 0; j < ENTRIES_PER_TABLE; j++) {
+            if (!(pmd[j] & PTE_V)) continue;
+            if (pmd[j] & (PTE_R | PTE_W | PTE_X)) continue; /* 2MB leaf, skip */
+            unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[j] >> 10) << 12);
+            /* Free physical pages mapped by PTE entries */
+            for (int k = 0; k < ENTRIES_PER_TABLE; k++) {
+                if (pte[k] & PTE_V) {
+                    unsigned long pa = (pte[k] >> 10) << 12;
+                    free((void *)PA_TO_VA(pa));
+                }
+            }
+            free(pte);
+        }
+        free(pmd);
+    }
+    free(user_pgd);
+}
+
+/*
+ * Switch to a process's address space by writing its PGD to satp.
+ */
+void switch_mm(unsigned long *user_pgd) {
+    unsigned long pgd_pa = VA_TO_PA((unsigned long)user_pgd);
+    asm volatile(
+        "csrw satp, %0\n"
+        "sfence.vma\n"
+        :
+        : "r"(MAKE_SATP(pgd_pa))
+        : "memory"
+    );
 }

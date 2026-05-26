@@ -26,6 +26,7 @@ typedef unsigned long      size_t;
 #include "timer.h"
 #include "trap.h"
 #include "thread.h"
+#include "vm.h"
 
 /* ── Globals ─────────────────────────────────────────────────────────────── */
 unsigned long saved_hart_id;
@@ -243,7 +244,6 @@ static void exec_thread_fn(void) {
         free(ea);
         return;
     }
-
     /* Allocate and copy program */
     void *prog = allocate((unsigned long)size);
     if (!prog) { uart_puts("Failed to allocate prog\r\n"); free(ea); return; }
@@ -256,26 +256,42 @@ static void exec_thread_fn(void) {
     cur->prog = (unsigned long)prog;
     cur->prog_size = (unsigned long)size;
     cur->user_stack = (unsigned long)ustack;
-    cur->user_sp = (unsigned long)ustack + USER_STACK_SIZE;
+    cur->user_sp = USER_STACK_TOP;
+
+    /* Create per-process page table */
+    extern unsigned long *create_user_pgd(void);
+    extern void map_pages(unsigned long *pgd, unsigned long va, unsigned long pa,
+                          unsigned long size, unsigned long prot);
+    extern void switch_mm(unsigned long *pgd);
+
+    cur->pgd = create_user_pgd();
+    if (!cur->pgd) { free(prog); free(ustack); free(ea); return; }
+
+    /* Map user code at VA 0x0, stack below USER_STACK_TOP */
+    map_pages(cur->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
+              (unsigned long)size, PROT_USER_RWX);
+    map_pages(cur->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
+              USER_STACK_SIZE, PROT_USER_RW);
+
+    /* Switch to the new address space */
+    switch_mm(cur->pgd);
 
     free(ea);
 
     /* Flush instruction cache after copying program code */
     asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
 
-    uart_puts("Running in U-mode at ");
-    uart_hex((unsigned long)prog);
-    uart_puts("\r\n");
+    uart_puts("Running in U-mode (VA 0x0)\r\n");
 
     /* Build a trap frame on the kernel stack and sret to user mode */
     struct trap_frame tf;
     for (int i = 0; i < (int)(sizeof(tf) / sizeof(unsigned long)); i++)
         ((unsigned long *)&tf)[i] = 0;
 
-    tf.sepc = (unsigned long)prog;
-    tf.sp = cur->user_sp;
-    tf.tp = (unsigned long)cur;  /* preserve task pointer */
-    tf.sstatus = SSTATUS_SPIE;  /* SPP=0 (U-mode), SPIE=1 */
+    tf.sepc = USER_CODE_VA;        /* user program starts at VA 0x0 */
+    tf.sp = USER_STACK_TOP;        /* user stack top */
+    tf.tp = (unsigned long)cur;    /* preserve task pointer */
+    tf.sstatus = SSTATUS_SPIE;     /* SPP=0 (U-mode), SPIE=1 */
 
     /* Enter user mode via trap_return */
     extern void enter_user_mode(struct trap_frame *tf);

@@ -90,6 +90,11 @@ _start:
     csrw   stvec, t0
     csrw   sscratch, zero
 
+    /* Enable SUM (Supervisor User Memory access) so kernel can read/write
+     * user pages (PTE_U) during syscall handling */
+    li     t0, (1 << 18)
+    csrs   sstatus, t0
+
     /* Enter kernel main with DTB pointer converted to virtual address */
     li     t0, PAGE_OFFSET
     add    a0, s1, t0              /* a0 = dtb_ptr + PAGE_OFFSET (virtual) */

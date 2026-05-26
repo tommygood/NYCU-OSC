@@ -89,8 +89,9 @@ extern unsigned long k_strlen(const char *s);
 static void handle_ecall(struct trap_frame *tf) {
     unsigned long syscall_nr = tf->a7;
 
-    /* Enable interrupts so UART TX/RX and timer work during syscalls */
-    asm volatile("csrsi sstatus, 2");
+    /* Enable interrupts + SUM (supervisor user memory access) */
+    unsigned long sum_sie = (1UL << 18) | (1UL << 1);
+    asm volatile("csrs sstatus, %0" :: "r"(sum_sie));
 
 
     switch (syscall_nr) {
@@ -115,7 +116,7 @@ static void handle_ecall(struct trap_frame *tf) {
             const char *buf = (const char *)tf->a0;
             long count = (long)tf->a1;
             for (long i = 0; i < count; i++) {
-                if (buf[i] == '\n') uart_putc('\r'); // move cursor at the top to prevent from staircase effect
+                if (buf[i] == '\n') uart_putc('\r');
                 uart_putc(buf[i]);
             }
             tf->a0 = (unsigned long)count;

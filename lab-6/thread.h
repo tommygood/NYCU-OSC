@@ -24,6 +24,12 @@ struct thread_struct {
     unsigned long s[12];  /* s0-s11 */
 };
 
+/* User virtual address layout */
+/* Sv39 user VA range: 0x0 - 0x3FFFFFFFFF */
+#define USER_CODE_VA    0x0UL
+#define USER_STACK_TOP  0x4000000000UL  /* sp starts here, grows down into mapped pages */
+#define USER_STACK_VA   (USER_STACK_TOP - USER_STACK_SIZE)  /* = 0x3FFFFC000, all pages valid */
+
 struct task_struct {
     struct thread_struct thread;   /* must be first for switch_to offsets */
     int pid;
@@ -34,6 +40,7 @@ struct task_struct {
     unsigned long user_stack;     /* user stack base (for free) */
     unsigned long prog;           /* user program base (for free/fork) */
     unsigned long prog_size;      /* user program size */
+    unsigned long *pgd;           /* per-process page table (VA) */
     struct task_struct *next;
     struct task_struct *prev;
     struct task_struct *wait_target; /* task we are waiting on */
