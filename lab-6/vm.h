@@ -60,6 +60,7 @@
 /* VM API */
 void setup_vm(const void *fdt);
 void drop_identity_map(void);
+void _restore_identity_map(void);
 
 /* Get kernel PGD (for switching back to kernel address space) */
 unsigned long *get_kernel_pgd(void);

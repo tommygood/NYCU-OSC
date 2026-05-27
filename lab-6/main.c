@@ -170,9 +170,9 @@ extern void sbi_timer_init(void);
 /* ── Shell commands ──────────────────────────────────────────────────────── */
 
 #ifdef QEMU
-# define LOAD_ADDR 0x80200000UL
+# define LOAD_ADDR (0x80200000UL + PAGE_OFFSET)
 #else
-# define LOAD_ADDR 0x00200000UL
+# define LOAD_ADDR (0x00200000UL + PAGE_OFFSET)
 #endif
 
 #define NULL 0
@@ -430,12 +430,16 @@ static void cmd_bootloader(void) {
         for (unsigned long i = 0; i < size; i++)
             dst[i] = (uint8_t)uart_getc();
 
+        /* Convert addresses back to physical for the new kernel */
+        unsigned long load_pa = VA_TO_PA(LOAD_ADDR);
+        unsigned long fdt_pa = VA_TO_PA((unsigned long)g_fdt);
         uart_puts("Done. Jumping to ");
-        uart_hex(LOAD_ADDR);
+        uart_hex(load_pa);
         uart_puts("\r\n");
 
         uart_init();
-        jump_to_entry(LOAD_ADDR, saved_hart_id, (unsigned long)g_fdt);
+        /* jump_to_entry handles MMU disable and transition to physical */
+        jump_to_entry(load_pa, saved_hart_id, fdt_pa);
         while (1) {}
     }
 }

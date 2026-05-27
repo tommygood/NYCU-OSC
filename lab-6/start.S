@@ -103,14 +103,44 @@ _start:
 
 /* void jump_to_entry(unsigned long entry, unsigned long hart_id,
  *                    unsigned long dtb_ptr)
+ *
+ * Disables MMU and jumps to entry (physical address).
+ * Must transition from virtual to physical addressing safely.
  */
 .global jump_to_entry
 jump_to_entry:
-    mv   t0, a0          /* entry address */
-    mv   a0, a1          /* hart_id  -> a0 */
-    mv   a1, a2          /* dtb_ptr  -> a1 */
-    .4byte 0x0000100F    /* fence.i */
+    mv   s0, a0          /* s0 = entry (physical) */
+    mv   s1, a1          /* s1 = hart_id */
+    mv   s2, a2          /* s2 = dtb_ptr (physical) */
+
+    /* Re-enable identity mapping so we can run at physical addresses.
+     * Copy kernel PGD entries to the identity (low) slots.
+     * For QEMU: copy pgd[258..261] to pgd[2..5]
+     * For board: copy pgd[256..257] to pgd[0..1] (already there from boot,
+     *            but was cleared by drop_identity_map) */
+    la   t0, _restore_identity_map
+    jalr ra, t0, 0
+
+    /* Compute physical address of the trampoline below */
+    la   t0, .Lphys_trampoline
+    li   t1, PAGE_OFFSET
+    sub  t0, t0, t1          /* t0 = PA of trampoline */
+
+    /* Jump to the trampoline at its physical address
+     * (works because identity mapping is now active) */
     jr   t0
+
+.Lphys_trampoline:
+    /* Now running at physical address (via identity mapping) */
+    /* Disable MMU */
+    csrw satp, zero
+    sfence.vma
+
+    /* Set up arguments and jump to new kernel */
+    mv   a0, s1              /* hart_id */
+    mv   a1, s2              /* dtb_ptr */
+    .4byte 0x0000100F        /* fence.i */
+    jr   s0                  /* jump to entry */
 
 
 /* ── switch_to(prev, next) ─────────────────────────────────────────────── */

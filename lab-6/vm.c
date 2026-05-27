@@ -162,6 +162,18 @@ void drop_identity_map(void)
     asm volatile("sfence.vma" ::: "memory");
 }
 
+void _restore_identity_map(void)
+{
+    unsigned long phys_pgd_idx = PHYS_BASE >> PGD_SHIFT;
+    /* Re-add RAM identity mapping */
+    for (int gib = 0; gib < LINEAR_MAP_GIB; gib++)
+        pgd[phys_pgd_idx + gib] = pgd[KERNEL_PGD_INDEX + phys_pgd_idx + gib];
+    /* Re-add MMIO identity mapping */
+    for (int i = 0; i < mmio_gib_count; i++)
+        pgd[mmio_gib_indices[i]] = pgd[KERNEL_PGD_INDEX + mmio_gib_indices[i]];
+    asm volatile("sfence.vma" ::: "memory");
+}
+
 /* ── Per-process page table support ──────────────────────────────────────── */
 
 extern void *allocate(unsigned long size);
