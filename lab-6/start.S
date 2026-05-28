@@ -60,7 +60,6 @@ _start:
     add    t0, t0, t1
     jr     t0
 
-.align 2
 .Lhigh:
     /* Now running at high virtual addresses.
      * All PC-relative addressing gives virtual addresses. */

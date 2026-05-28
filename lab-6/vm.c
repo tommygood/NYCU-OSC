@@ -245,7 +245,6 @@ void free_user_pgd(unsigned long *user_pgd) {
         unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[i] >> 10) << 12);
         for (int j = 0; j < ENTRIES_PER_TABLE; j++) {
             if (!(pmd[j] & PTE_V)) continue;
-            if (pmd[j] & (PTE_R | PTE_W | PTE_X)) continue; /* 2MB leaf, skip */
             unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[j] >> 10) << 12);
             /* Free physical pages mapped by PTE entries */
             for (int k = 0; k < ENTRIES_PER_TABLE; k++) {
