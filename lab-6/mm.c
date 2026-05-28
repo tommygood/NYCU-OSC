@@ -16,9 +16,7 @@ extern unsigned long dtb_get_initrd_end(const void *fdt);
 extern int dtb_get_reserved_region(const void *fdt, int idx, uint64_t *base, uint64_t *size);
 extern uint32_t bswap32(uint32_t x);
 
-#define PAGE_OFFSET 0xffffffc000000000UL
-#define VA_TO_PA(va) ((unsigned long)(va) - PAGE_OFFSET)
-#define PA_TO_VA(pa) ((unsigned long)(pa) + PAGE_OFFSET)
+#include "vm.h"
 
 extern char _start, _end;
 

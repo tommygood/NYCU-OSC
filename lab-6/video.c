@@ -9,6 +9,8 @@ typedef unsigned int   uint32_t;
 typedef unsigned long  uint64_t;
 typedef unsigned short uint16_t;
 
+#include "vm.h"
+
 extern void *k_memcpy(void *dst, const void *src, unsigned long n);
 extern int k_strncmp(const char *a, const char *b, unsigned long n);
 extern void uart_puts(const char *s);
@@ -24,7 +26,7 @@ extern void uart_hex(unsigned long h);
 
 #ifdef QEMU
 
-#define FB_BASE   (0x87000000UL + 0xffffffc000000000UL)
+#define FB_BASE   (0x87000000UL + PAGE_OFFSET)
 
 /* ---- fw_cfg (QEMU firmware configuration) ---- */
 
@@ -59,7 +61,7 @@ struct QEMU_PACKED RAMFBCfg {
     uint32_t stride;
 };
 
-#define FW_CFG_BASE   (0x10100000UL + 0xffffffc000000000UL)
+#define FW_CFG_BASE   (0x10100000UL + PAGE_OFFSET)
 #define FW_CFG_DMA    ((volatile uint64_t *)(FW_CFG_BASE + 0x10))
 
 #define FW_CFG_DMA_CTL_ERROR  0x01
@@ -85,7 +87,7 @@ struct QEMU_PACKED FWCfgDmaAccess {
 };
 
 /* VA→PA for DMA: QEMU device reads from physical memory */
-#define VA_TO_PA_DMA(va) ((uint64_t)(va) - 0xffffffc000000000ULL)
+#define VA_TO_PA_DMA(va) ((uint64_t)(va) - PAGE_OFFSET)
 
 static void fw_cfg_dma_transfer(void *address, uint32_t length, uint32_t control) {
     struct FWCfgDmaAccess access = {
@@ -143,7 +145,7 @@ void video_init(void) {
 
 #else /* Board (Orange Pi RV2) */
 
-#define FB_BASE (0x7f700000UL + 0xffffffc000000000UL)
+#define FB_BASE (0x7f700000UL + PAGE_OFFSET)
 
 #define CACHE_BLOCK_SIZE 64
 #define cbo_flush(start)                \

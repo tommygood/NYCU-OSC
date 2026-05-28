@@ -33,25 +33,17 @@ static unsigned long __attribute__((section(".data"), aligned(PAGE_SIZE)))
  *          all within first 1GB (PGD index 0 for identity, KERNEL_PGD_INDEX for kernel)
  */
 /*
- * MMIO page tables — shared between QEMU and board.
+ * MMIO page tables — kernel mapping only (no identity mapping needed).
  * We support up to 2 MMIO GiB regions. Each gets a PMD + PTE for UART.
  * PLIC uses 2MB leaf pages in the PMD.
  */
 #define MAX_MMIO_GIBS 2
 static unsigned long __attribute__((section(".data"), aligned(PAGE_SIZE)))
     pmd_mmio[MAX_MMIO_GIBS][ENTRIES_PER_TABLE] = { { 0 } };
-static unsigned long __attribute__((section(".data"), aligned(PAGE_SIZE)))
-    pmd_mmio_identity[MAX_MMIO_GIBS][ENTRIES_PER_TABLE] = { { 0 } };
 
 /* PTE for UART's 2MB block (4KB pages) */
 static unsigned long __attribute__((section(".data"), aligned(PAGE_SIZE)))
     pte_uart[ENTRIES_PER_TABLE] = { 0 };
-static unsigned long __attribute__((section(".data"), aligned(PAGE_SIZE)))
-    pte_uart_identity[ENTRIES_PER_TABLE] = { 0 };
-
-/* Track which GiB indices have MMIO mappings for drop_identity_map */
-static int mmio_gib_indices[MAX_MMIO_GIBS];
-static int mmio_gib_count = 0;
 
 static void map_uart_4kb(unsigned long uart_base, int mmio_idx) {
     unsigned long uart_2mb_base = uart_base & ~(PMD_SIZE - 1);
@@ -60,26 +52,17 @@ static void map_uart_4kb(unsigned long uart_base, int mmio_idx) {
     for (int i = 0; i < ENTRIES_PER_TABLE; i++) {
         unsigned long pa = uart_2mb_base + (unsigned long)i * PAGE_SIZE;
         pte_uart[i] = MAKE_PTE(pa, PROT_MMIO);
-        pte_uart_identity[i] = MAKE_PTE(pa, PROT_MMIO);
     }
     pmd_mmio[mmio_idx][pmd_idx] = MAKE_PTE((unsigned long)pte_uart, PTE_V);
-    pmd_mmio_identity[mmio_idx][pmd_idx] = MAKE_PTE((unsigned long)pte_uart_identity, PTE_V);
 }
 
 static void map_plic_2mb(unsigned long plic_base, unsigned long plic_size, int mmio_idx) {
     int pmd_start = (plic_base >> PMD_SHIFT) & 0x1FF;
-    int count = (int)((plic_size + PMD_SIZE - 1) / PMD_SIZE); // num of pmd entries needed for PLIC
+    int count = (int)((plic_size + PMD_SIZE - 1) / PMD_SIZE);
     for (int i = 0; i < count; i++) {
         unsigned long pa = plic_base + (unsigned long)i * PMD_SIZE;
         pmd_mmio[mmio_idx][pmd_start + i] = MAKE_PTE(pa, PROT_MMIO);
-        pmd_mmio_identity[mmio_idx][pmd_start + i] = MAKE_PTE(pa, PROT_MMIO);
     }
-}
-
-static void wire_mmio_gib(int gib_idx, int mmio_idx) {
-    pgd[gib_idx] = MAKE_PTE((unsigned long)pmd_mmio_identity[mmio_idx], PTE_V);
-    pgd[KERNEL_PGD_INDEX + gib_idx] = MAKE_PTE((unsigned long)pmd_mmio[mmio_idx], PTE_V);
-    mmio_gib_indices[mmio_gib_count++] = gib_idx;
 }
 
 static void setup_mmio(const void *fdt) {
@@ -96,13 +79,13 @@ static void setup_mmio(const void *fdt) {
     /* If PLIC is in the same GiB, add it to the same PMD */
     if (plic_gib == uart_gib) {
         map_plic_2mb(plic_base, plic_size, mmio_idx);
-        wire_mmio_gib(uart_gib, mmio_idx);
+        pgd[KERNEL_PGD_INDEX + uart_gib] = MAKE_PTE((unsigned long)pmd_mmio[mmio_idx], PTE_V);
     } else {
-        wire_mmio_gib(uart_gib, mmio_idx);
+        pgd[KERNEL_PGD_INDEX + uart_gib] = MAKE_PTE((unsigned long)pmd_mmio[mmio_idx], PTE_V);
         /* PLIC in a different GiB — use second PMD */
         mmio_idx = 1;
         map_plic_2mb(plic_base, plic_size, mmio_idx);
-        wire_mmio_gib(plic_gib, mmio_idx);
+        pgd[KERNEL_PGD_INDEX + plic_gib] = MAKE_PTE((unsigned long)pmd_mmio[mmio_idx], PTE_V);
     }
 }
 
@@ -154,23 +137,14 @@ void drop_identity_map(void)
     unsigned long phys_pgd_idx = PHYS_BASE >> PGD_SHIFT;
     for (int gib = 0; gib < LINEAR_MAP_GIB; gib++)
         pgd[phys_pgd_idx + gib] = 0;
-
-    /* Also clear MMIO identity mapping */
-    for (int i = 0; i < mmio_gib_count; i++)
-        pgd[mmio_gib_indices[i]] = 0;
-
     asm volatile("sfence.vma" ::: "memory");
 }
 
 void _restore_identity_map(void)
 {
     unsigned long phys_pgd_idx = PHYS_BASE >> PGD_SHIFT;
-    /* Re-add RAM identity mapping */
     for (int gib = 0; gib < LINEAR_MAP_GIB; gib++)
         pgd[phys_pgd_idx + gib] = pgd[KERNEL_PGD_INDEX + phys_pgd_idx + gib];
-    /* Re-add MMIO identity mapping */
-    for (int i = 0; i < mmio_gib_count; i++)
-        pgd[mmio_gib_indices[i]] = pgd[KERNEL_PGD_INDEX + mmio_gib_indices[i]];
     asm volatile("sfence.vma" ::: "memory");
 }
 

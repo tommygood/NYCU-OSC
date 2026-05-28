@@ -6,7 +6,9 @@
 
 /* Page offset: kernel virtual = physical + PAGE_OFFSET */
 #define PAGE_OFFSET   0xffffffc000000000UL
+#ifndef PAGE_SIZE
 #define PAGE_SIZE     (1UL << 12)     /* 4 KiB */
+#endif
 #define PMD_SIZE      (1UL << 21)     /* 2 MiB */
 #define PGD_SIZE      (1UL << 30)     /* 1 GiB */
 

@@ -528,10 +528,6 @@ static void irq_init(void) {
 
 /* ── Idle + shell thread ─────────────────────────────────────────────────── */
 
-/* ── PA to VA conversion for kernel linear mapping ───────────────────────── */
-#define PAGE_OFFSET 0xffffffc000000000UL
-#define PA_TO_VA(pa) ((unsigned long)(pa) + PAGE_OFFSET)
-
 /* ── Kernel entry point ──────────────────────────────────────────────────── */
 void kernel_main(void *fdt) {
     /* fdt is already a virtual address (start.S added PAGE_OFFSET) */
