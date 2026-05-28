@@ -291,7 +291,7 @@ static void exec_thread_fn(void) {
     tf.sepc = USER_CODE_VA;        /* user program starts at VA 0x0 */
     tf.sp = USER_STACK_TOP;        /* user stack top */
     tf.tp = (unsigned long)cur;    /* preserve task pointer */
-    tf.sstatus = SSTATUS_SPIE;     /* SPP=0 (U-mode), SPIE=1 */
+    tf.sstatus = SSTATUS_SPIE | SSTATUS_SUM;  /* SPP=0 (U-mode), SPIE=1, SUM=1 */
 
     /* Enter user mode via trap_return */
     extern void enter_user_mode(struct trap_frame *tf);

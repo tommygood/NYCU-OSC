@@ -89,9 +89,8 @@ extern unsigned long k_strlen(const char *s);
 static void handle_ecall(struct trap_frame *tf) {
     unsigned long syscall_nr = tf->a7;
 
-    /* Enable interrupts + SUM (supervisor user memory access) */
-    unsigned long sum_sie = (1UL << 18) | (1UL << 1);
-    asm volatile("csrs sstatus, %0" :: "r"(sum_sie));
+    /* Enable interrupts so UART TX/RX and timer work during syscalls */
+    asm volatile("csrsi sstatus, 2");
 
 
     switch (syscall_nr) {

@@ -90,8 +90,7 @@ _start:
     csrw   stvec, t0
     csrw   sscratch, zero
 
-    /* Enable SUM (Supervisor User Memory access) so kernel can read/write
-     * user pages (PTE_U) during syscall handling */
+    /* Enable SUM so kernel can access user pages (PTE_U) during syscalls */
     li     t0, (1 << 18)
     csrs   sstatus, t0
 
