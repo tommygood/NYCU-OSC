@@ -119,7 +119,6 @@ void setup_vm(const void *fdt)
     /* Enable MMU */
     unsigned long satp_val = MAKE_SATP((unsigned long)pgd);
     asm volatile(
-        "sfence.vma\n"
         "csrw satp, %0\n"
         "sfence.vma\n"
         :
