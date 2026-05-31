@@ -185,6 +185,10 @@ static void handle_ecall(struct trap_frame *tf) {
         tf->a0 = (unsigned long)sys_kill((int)tf->a0, (int)tf->a1);
         break;
 
+    case 13: /* mmap(addr, length, prot, flags) */
+        tf->a0 = sys_mmap(tf->a0, tf->a1, (int)tf->a2, (int)tf->a3);
+        break;
+
     default:
         uart_puts("[syscall] unknown: ");
         uart_putdec(syscall_nr);
@@ -227,13 +231,16 @@ void do_trap(struct trap_frame *tf) {
         switch (code) {
         case IRQ_S_TIMER:
         {
-            static int in_timer_schedule = 0;
+            static volatile int in_timer_schedule = 0;
             handle_timer_irq();
             if (!in_timer_schedule) {
                 in_timer_schedule = 1;
                 schedule();
-                in_timer_schedule = 0;
+                /* Reset even if we switched to a different thread —
+                 * the thread that resumes here might not be the one
+                 * that set the flag. */
             }
+            in_timer_schedule = 0;
             break;
         }
         case IRQ_S_EXTERNAL:
@@ -251,6 +258,24 @@ void do_trap(struct trap_frame *tf) {
         case EXC_ECALL_U:
             handle_ecall(tf);
             break;
+        case 12: /* Instruction page fault */
+        case 13: /* Load page fault */
+        case 15: /* Store/AMO page fault */
+            /* User-mode page fault: log and kill the process */
+            if (!(tf->sstatus & SSTATUS_SPP)) {
+                uart_puts("[segfault] pid=");
+                uart_putdec((unsigned long)get_current()->pid);
+                uart_puts(" scause=");
+                uart_putdec(code);
+                uart_puts(" sepc=");
+                uart_hex(tf->sepc);
+                uart_puts(" stval=");
+                uart_hex(tf->stval);
+                uart_puts("\r\n");
+                thread_exit();
+                while (1);
+            }
+            /* Fall through for S-mode faults */
         default:
             uart_puts("[trap] exception: scause=");
             uart_hex(scause);

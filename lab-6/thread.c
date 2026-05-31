@@ -9,6 +9,7 @@
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
 extern void uart_putdec(unsigned long n);
+extern void *k_memset(void *s, int c, unsigned long n);
 
 extern int k_strcmp(const char *a, const char *b);
 
@@ -84,6 +85,7 @@ struct task_struct *thread_create(void (*fn)()) {
     task->prog = 0;
     task->prog_size = 0;
     task->pgd = 0;
+    for (int i = 0; i < MAX_VMAS; i++) task->vmas[i].active = 0;
     task->wait_target = 0;
     task->entry_fn = fn;
     task->pending_timer = 0;
@@ -258,6 +260,26 @@ long sys_fork(struct trap_frame *parent_tf) {
     map_pages(child->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)child_ustack),
               USER_STACK_SIZE, PROT_USER_RW);
 
+    /* Copy mmap regions from parent */
+    for (int i = 0; i < MAX_VMAS; i++) {
+        child->vmas[i] = parent->vmas[i];
+        if (!parent->vmas[i].active) continue;
+        /* Allocate new physical pages and copy content */
+        unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
+        if (parent->vmas[i].prot & PROT_READ)  pte_prot |= PTE_R;
+        if (parent->vmas[i].prot & PROT_WRITE) pte_prot |= PTE_W;
+        if (parent->vmas[i].prot & PROT_EXEC)  pte_prot |= PTE_X;
+        for (unsigned long off = 0; off < parent->vmas[i].size; off += PAGE_SIZE) {
+            void *page = allocate(PAGE_SIZE);
+            if (!page) continue;
+            /* Copy content from parent's mapping via user VA */
+            unsigned long src_va = parent->vmas[i].start + off;
+            k_memcpy(page, (void *)src_va, PAGE_SIZE);
+            map_pages(child->pgd, src_va, VA_TO_PA((unsigned long)page),
+                      PAGE_SIZE, pte_prot);
+        }
+    }
+
     /* Copy parent's kernel stack */
     k_memcpy(kstack, (void *)parent->stack, STACK_SIZE);
 
@@ -313,9 +335,21 @@ int sys_exec(const char *path, struct trap_frame *tf) {
     map_pages(current->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
               (unsigned long)size, PROT_USER_RWX);
 
-    /* Map user stack at VA 0x3ffffff000 (read + write) */
+    /* Map user stack */
     map_pages(current->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
               USER_STACK_SIZE, PROT_USER_RW);
+
+    /* Register code and stack as VMAs so mmap detects overlaps */
+    unsigned long prog_mapped_size = ((unsigned long)size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    for (int i = 0; i < MAX_VMAS; i++) current->vmas[i].active = 0;
+    current->vmas[0].start = USER_CODE_VA;
+    current->vmas[0].size = prog_mapped_size;
+    current->vmas[0].prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+    current->vmas[0].active = 1;
+    current->vmas[1].start = USER_STACK_VA;
+    current->vmas[1].size = USER_STACK_SIZE;
+    current->vmas[1].prot = PROT_READ | PROT_WRITE;
+    current->vmas[1].active = 1;
 
     /* Switch to new address space */
     switch_mm(current->pgd);
@@ -402,6 +436,87 @@ void sys_usleep(unsigned long usec) {
     current->pending_timer = 1;
     add_timer(usleep_wakeup, current, usec);
     schedule();
+}
+
+/* ---- mmap ---- */
+
+static int vma_overlaps(struct vma *vmas, unsigned long start, unsigned long size) {
+    unsigned long end = start + size;
+    for (int i = 0; i < MAX_VMAS; i++) {
+        if (!vmas[i].active) continue;
+        unsigned long vs = vmas[i].start;
+        unsigned long ve = vs + vmas[i].size;
+        if (start < ve && end > vs) return 1;
+    }
+    return 0;
+}
+
+unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int flags) {
+    struct task_struct *current = get_current();
+    if (!current->pgd) return (unsigned long)-1;
+
+    /* Round length up to page size */
+    length = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (length == 0) return (unsigned long)-1;
+
+    /* Find the target address */
+    unsigned long target;
+    if (addr == 0) {
+        /* Kernel chooses address — find a free region starting from MMAP_BASE */
+        target = MMAP_BASE;
+        while (vma_overlaps(current->vmas, target, length)) {
+            target += PAGE_SIZE;
+            if (target + length > USER_STACK_VA) return (unsigned long)-1;
+        }
+    } else {
+        /* Check alignment and overlap */
+        if ((addr & (PAGE_SIZE - 1)) || vma_overlaps(current->vmas, addr, length)) {
+            /* Treat as hint — find a free region */
+            target = MMAP_BASE;
+            while (vma_overlaps(current->vmas, target, length)) {
+                target += PAGE_SIZE;
+                if (target + length > USER_STACK_VA) return (unsigned long)-1;
+            }
+        } else {
+            target = addr; // use as exact
+        }
+    }
+
+    /* Find a free VMA slot */
+    int slot = -1;
+    for (int i = 0; i < MAX_VMAS; i++) {
+        if (!current->vmas[i].active) { slot = i; break; }
+    }
+    if (slot < 0) return (unsigned long)-1;
+
+    /* Only allocate and map pages if accessible (not PROT_NONE) */
+    if (prot != PROT_NONE) {
+        /* Convert prot to PTE flags */
+        unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
+        if (prot & PROT_READ)  pte_prot |= PTE_R;
+        if (prot & PROT_WRITE) pte_prot |= PTE_W;
+        if (prot & PROT_EXEC)  pte_prot |= PTE_X;
+
+        /* Allocate and map pages */
+        for (unsigned long off = 0; off < length; off += PAGE_SIZE) {
+            void *page = allocate(PAGE_SIZE);
+            if (!page) return (unsigned long)-1;
+            k_memset(page, 0, PAGE_SIZE);
+            map_pages(current->pgd, target + off, VA_TO_PA((unsigned long)page),
+                      PAGE_SIZE, pte_prot);
+        }
+
+        /* Flush TLB so new mappings take effect */
+        asm volatile("sfence.vma" ::: "memory");
+    }
+
+    /* Record the VMA */
+    current->vmas[slot].start = target;
+    current->vmas[slot].size = length;
+    current->vmas[slot].prot = prot;
+    current->vmas[slot].active = 1;
+
+    return target;
 }
 
 /* ---- Signal handling ---- */

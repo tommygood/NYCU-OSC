@@ -273,6 +273,18 @@ static void exec_thread_fn(void) {
     map_pages(cur->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
               USER_STACK_SIZE, PROT_USER_RW);
 
+    /* Register code and stack as VMAs so mmap detects overlaps */
+    unsigned long prog_mapped_size = ((unsigned long)size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    for (int i = 0; i < MAX_VMAS; i++) cur->vmas[i].active = 0;
+    cur->vmas[0].start = USER_CODE_VA;
+    cur->vmas[0].size = prog_mapped_size;
+    cur->vmas[0].prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+    cur->vmas[0].active = 1;
+    cur->vmas[1].start = USER_STACK_VA;
+    cur->vmas[1].size = USER_STACK_SIZE;
+    cur->vmas[1].prot = PROT_READ | PROT_WRITE;
+    cur->vmas[1].active = 1;
+
     /* Switch to the new address space */
     switch_mm(cur->pgd);
 

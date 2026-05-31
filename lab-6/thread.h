@@ -30,6 +30,25 @@ struct thread_struct {
 #define USER_STACK_TOP  0x4000000000UL  /* sp starts here, grows down into mapped pages */
 #define USER_STACK_VA   (USER_STACK_TOP - USER_STACK_SIZE)  /* = 0x3FFFFC000, all pages valid */
 
+/* mmap constants */
+#define PROT_NONE  0
+#define PROT_READ  1
+#define PROT_WRITE 2
+#define PROT_EXEC  4
+
+#define MAP_ANONYMOUS  0x20
+#define MAP_POPULATE   0x08000
+
+#define MMAP_BASE      0x10000000UL  /* default base for kernel-chosen mmap addresses */
+#define MAX_VMAS       16            /* max mmap regions per process */
+
+struct vma {
+    unsigned long start;
+    unsigned long size;
+    int prot;
+    int active;
+};
+
 struct task_struct {
     struct thread_struct thread;   /* must be first for switch_to offsets */
     int pid;
@@ -41,6 +60,7 @@ struct task_struct {
     unsigned long prog;           /* user program base (for free/fork) */
     unsigned long prog_size;      /* user program size */
     unsigned long *pgd;           /* per-process page table (VA) */
+    struct vma vmas[MAX_VMAS];    /* mmap regions */
     struct task_struct *next;
     struct task_struct *prev;
     struct task_struct *wait_target; /* task we are waiting on */
@@ -69,6 +89,7 @@ int sys_exec(const char *path, struct trap_frame *tf);
 void sys_exit(int status);
 long sys_waitpid(long pid);
 int sys_stop(long pid);
+unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int flags);
 unsigned long sys_signal(int signum, void (*handler)());
 void sys_sigreturn(struct trap_frame *tf);
 int sys_kill(int pid, int signum);
