@@ -147,6 +147,32 @@ void _restore_identity_map(void)
     asm volatile("sfence.vma" ::: "memory");
 }
 
+/* ── Page reference counting (for CoW) ──────────────────────────────────── */
+
+/* Simple refcount array: index = PA >> 12 (page frame number) */
+#define MAX_REFCOUNT_PAGES  (LINEAR_MAP_GIB * (PGD_SIZE / PAGE_SIZE))
+static int page_refcount[MAX_REFCOUNT_PAGES];
+
+static unsigned long pa_to_pfn(unsigned long pa) {
+    return (pa - PHYS_BASE) >> PTE_SHIFT;
+}
+
+void ref_page_inc(unsigned long pa) {
+    unsigned long pfn = pa_to_pfn(pa);
+    if (pfn < MAX_REFCOUNT_PAGES) page_refcount[pfn]++;
+}
+
+void ref_page_dec(unsigned long pa) {
+    unsigned long pfn = pa_to_pfn(pa);
+    if (pfn < MAX_REFCOUNT_PAGES && page_refcount[pfn] > 0) page_refcount[pfn]--;
+}
+
+int ref_page_count(unsigned long pa) {
+    unsigned long pfn = pa_to_pfn(pa);
+    if (pfn < MAX_REFCOUNT_PAGES) return page_refcount[pfn];
+    return 0;
+}
+
 /* ── Per-process page table support ──────────────────────────────────────── */
 
 extern void *allocate(unsigned long size);
@@ -219,11 +245,13 @@ void free_user_pgd(unsigned long *user_pgd) {
         for (int j = 0; j < ENTRIES_PER_TABLE; j++) {
             if (!(pmd[j] & PTE_V)) continue;
             unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[j] >> 10) << 12);
-            /* Free physical pages mapped by PTE entries */
+            /* Free physical pages — only if refcount drops to 0 (CoW) */
             for (int k = 0; k < ENTRIES_PER_TABLE; k++) {
                 if (pte[k] & PTE_V) {
                     unsigned long pa = (pte[k] >> 10) << 12;
-                    free((void *)PA_TO_VA(pa));
+                    ref_page_dec(pa);
+                    if (ref_page_count(pa) <= 0)
+                        free((void *)PA_TO_VA(pa));
                 }
             }
             free(pte);

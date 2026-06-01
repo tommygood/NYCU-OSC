@@ -213,6 +213,21 @@ int sys_getpid(void) {
 
 extern void *k_memcpy(void *dst, const void *src, unsigned long n);
 
+/*
+ * Helper: walk page table to get PTE pointer for a VA.
+ * Returns NULL if any level is not mapped.
+ */
+static unsigned long *get_pte(unsigned long *user_pgd, unsigned long va) {
+    int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
+    if (!(user_pgd[vpn2] & PTE_V)) return 0;
+    unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
+    int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
+    if (!(pmd[vpn1] & PTE_V)) return 0;
+    unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
+    int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
+    return &pte[vpn0];
+}
+
 long sys_fork(struct trap_frame *parent_tf) {
     struct task_struct *parent = get_current();
     struct task_struct *child = (struct task_struct *)allocate(sizeof(struct task_struct));
@@ -222,22 +237,12 @@ long sys_fork(struct trap_frame *parent_tf) {
     void *kstack = allocate(STACK_SIZE);
     if (!kstack) { free(child); return -1; }
 
-    /* Allocate user program and stack pages (separate physical pages) */
-    void *child_prog = allocate(parent->prog_size);
-    if (!child_prog) { free(kstack); free(child); return -1; }
-    void *child_ustack = allocate(USER_STACK_SIZE);
-    if (!child_ustack) { free(child_prog); free(kstack); free(child); return -1; }
-
-    /* Copy parent's program and user stack to child's physical pages */
-    k_memcpy(child_prog, (void *)parent->prog, parent->prog_size);
-    k_memcpy(child_ustack, (void *)parent->user_stack, USER_STACK_SIZE);
-
     child->pid = nr_threads++;
     child->state = TASK_RUNNING;
     child->stack = (unsigned long)kstack;
     child->kernel_sp = (unsigned long)kstack + STACK_SIZE;
-    child->user_stack = (unsigned long)child_ustack;
-    child->prog = (unsigned long)child_prog;
+    child->user_stack = 0;
+    child->prog = parent->prog;
     child->prog_size = parent->prog_size;
     child->user_sp = USER_STACK_TOP;
     child->wait_target = 0;
@@ -250,36 +255,41 @@ long sys_fork(struct trap_frame *parent_tf) {
     /* Create child's page table with kernel mappings */
     child->pgd = create_user_pgd();
     if (!child->pgd) {
-        free(child_ustack); free(child_prog); free(kstack); free(child);
+        free(kstack); free(child);
         return -1;
     }
 
-    /* Map child's own physical pages at the same user VAs */
-    map_pages(child->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)child_prog),
-              parent->prog_size, PROT_USER_RWX);
-    map_pages(child->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)child_ustack),
-              USER_STACK_SIZE, PROT_USER_RW);
-
-    /* Copy mmap regions from parent — only copy pages that are actually mapped */
+    /* CoW: copy VMAs, share pages read-only, increment refcounts */
     for (int i = 0; i < MAX_VMAS; i++) {
         child->vmas[i] = parent->vmas[i];
         if (!parent->vmas[i].active) continue;
-        /* Allocate new physical pages and copy content */
-        unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
-        if (parent->vmas[i].prot & PROT_READ)  pte_prot |= PTE_R;
-        if (parent->vmas[i].prot & PROT_WRITE) pte_prot |= PTE_W;
-        if (parent->vmas[i].prot & PROT_EXEC)  pte_prot |= PTE_X;
+
         for (unsigned long off = 0; off < parent->vmas[i].size; off += PAGE_SIZE) {
-            unsigned long src_va = parent->vmas[i].start + off;
-            /* Skip pages not yet mapped (demand-paged but never accessed) */
-            if (!page_is_mapped(parent->pgd, src_va)) continue;
-            void *page = allocate(PAGE_SIZE);
-            if (!page) continue;
-            k_memcpy(page, (void *)src_va, PAGE_SIZE);
-            map_pages(child->pgd, src_va, VA_TO_PA((unsigned long)page),
-                      PAGE_SIZE, pte_prot);
+            unsigned long va = parent->vmas[i].start + off;
+            unsigned long *parent_pte = get_pte(parent->pgd, va);
+            if (!parent_pte || !(*parent_pte & PTE_V)) continue;
+
+            unsigned long pa = (*parent_pte >> 10) << 12;
+            unsigned long flags = *parent_pte & 0x3FF;  /* lower 10 bits = flags */
+
+            /* If page is writable, mark as read-only + CoW in BOTH parent and child */
+            if (flags & PTE_W) {
+                flags = (flags & ~PTE_W) | PTE_COW;
+                *parent_pte = MAKE_PTE(pa, flags);
+            }
+
+            /* Share the same physical page in child */
+            map_pages(child->pgd, va, pa, PAGE_SIZE, flags);
+
+            /* Increment reference count */
+            ref_page_inc(pa);
+            /* Also count for parent (if first time sharing) */
+            if (ref_page_count(pa) == 1) ref_page_inc(pa);
         }
     }
+
+    /* Flush parent's TLB since we changed its PTEs to read-only */
+    asm volatile("sfence.vma" ::: "memory");
 
     /* Copy parent's kernel stack */
     k_memcpy(kstack, (void *)parent->stack, STACK_SIZE);
@@ -540,10 +550,39 @@ int handle_page_fault(unsigned long fault_addr) {
     /* Page-align the fault address */
     unsigned long page_va = fault_addr & ~(PAGE_SIZE - 1);
 
-    /* If the page is already mapped, this is a permission fault → segfault */
-    if (page_is_mapped(current->pgd, page_va)) return 0;
+    /* Check if the page is already mapped — could be CoW or permission fault */
+    if (page_is_mapped(current->pgd, page_va)) {
+        unsigned long *pte = get_pte(current->pgd, page_va);
+        if (pte && (*pte & PTE_COW)) {
+            /* Copy-on-Write: allocate new page, copy content, make writable */
+            unsigned long old_pa = (*pte >> 10) << 12;
+            void *new_page = allocate(PAGE_SIZE);
+            if (!new_page) return 0;
+            k_memcpy(new_page, (void *)PA_TO_VA(old_pa), PAGE_SIZE);
 
-    /* Find the VMA that contains the fault address */
+            /* Restore PTE_W and remove PTE_COW */
+            unsigned long flags = (*pte & 0x3FF) | PTE_W;
+            flags &= ~PTE_COW;
+            *pte = MAKE_PTE(VA_TO_PA((unsigned long)new_page), flags);
+
+            /* Decrement refcount on old page, free if no longer shared */
+            ref_page_dec(old_pa);
+            if (ref_page_count(old_pa) <= 0)
+                free((void *)PA_TO_VA(old_pa));
+
+            /* Set refcount for new page */
+            ref_page_inc(VA_TO_PA((unsigned long)new_page));
+
+            asm volatile("sfence.vma" ::: "memory");
+            uart_puts("[Permission fault]: ");
+            uart_hex(fault_addr);
+            uart_puts("\r\n");
+            return 1;
+        }
+        return 0;  /* page mapped but not CoW → real permission fault → segfault */
+    }
+
+    /* Find the VMA that contains the fault address (demand paging) */
     for (int i = 0; i < MAX_VMAS; i++) {
         if (!current->vmas[i].active) continue;
         unsigned long vs = current->vmas[i].start;
@@ -564,8 +603,11 @@ int handle_page_fault(unsigned long fault_addr) {
             k_memset(page, 0, PAGE_SIZE);
             map_pages(current->pgd, page_va, VA_TO_PA((unsigned long)page),
                       PAGE_SIZE, pte_prot);
-            asm volatile("sfence.vma" ::: "memory");
 
+            /* Set initial refcount */
+            ref_page_inc(VA_TO_PA((unsigned long)page));
+
+            asm volatile("sfence.vma" ::: "memory");
             uart_puts("[Translation fault]: ");
             uart_hex(fault_addr);
             uart_puts("\r\n");

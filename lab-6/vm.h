@@ -75,4 +75,12 @@ void map_pages(unsigned long *pgd, unsigned long va, unsigned long pa,
 void switch_mm(unsigned long *pgd);
 int page_is_mapped(unsigned long *pgd, unsigned long va);
 
+/* CoW reference counting */
+void ref_page_inc(unsigned long pa);
+void ref_page_dec(unsigned long pa);
+int ref_page_count(unsigned long pa);
+
+/* CoW PTE flag — use a software-defined bit to mark CoW pages */
+#define PTE_COW  (1UL << 8)   /* RSW bit 0: copy-on-write */
+
 #endif /* VM_H */
