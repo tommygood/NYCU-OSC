@@ -213,21 +213,6 @@ int sys_getpid(void) {
 
 extern void *k_memcpy(void *dst, const void *src, unsigned long n);
 
-/*
- * Helper: walk page table to get PTE pointer for a VA.
- * Returns NULL if any level is not mapped.
- */
-static unsigned long *get_pte(unsigned long *user_pgd, unsigned long va) {
-    int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
-    if (!(user_pgd[vpn2] & PTE_V)) return 0;
-    unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
-    int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
-    if (!(pmd[vpn1] & PTE_V)) return 0;
-    unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
-    int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
-    return &pte[vpn0];
-}
-
 long sys_fork(struct trap_frame *parent_tf) {
     struct task_struct *parent = get_current();
     struct task_struct *child = (struct task_struct *)allocate(sizeof(struct task_struct));
@@ -266,7 +251,7 @@ long sys_fork(struct trap_frame *parent_tf) {
 
         for (unsigned long off = 0; off < parent->vmas[i].size; off += PAGE_SIZE) {
             unsigned long va = parent->vmas[i].start + off;
-            unsigned long *parent_pte = get_pte(parent->pgd, va);
+            unsigned long *parent_pte = walk_pgd(parent->pgd, va, 0);
             if (!parent_pte || !(*parent_pte & PTE_V)) continue;
 
             unsigned long pa = (*parent_pte >> 10) << 12;
@@ -531,17 +516,7 @@ unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int f
  * Handle a page fault at the given address.
  * Returns 1 if the fault was handled (page allocated), 0 if segfault.
  */
-/* Check if a page is already mapped in the page table */
-int page_is_mapped(unsigned long *user_pgd, unsigned long va) {
-    int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
-    if (!(user_pgd[vpn2] & PTE_V)) return 0;
-    unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
-    int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
-    if (!(pmd[vpn1] & PTE_V)) return 0;
-    unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
-    int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
-    return (pte[vpn0] & PTE_V) ? 1 : 0;
-}
+
 
 int handle_page_fault(unsigned long fault_addr) {
     struct task_struct *current = get_current();
@@ -552,7 +527,7 @@ int handle_page_fault(unsigned long fault_addr) {
 
     /* Check if the page is already mapped — could be CoW or permission fault */
     if (page_is_mapped(current->pgd, page_va)) {
-        unsigned long *pte = get_pte(current->pgd, page_va);
+        unsigned long *pte = walk_pgd(current->pgd, page_va, 0);
         if (pte && (*pte & PTE_COW)) {
             /* Copy-on-Write: allocate new page, copy content, make writable */
             unsigned long old_pa = (*pte >> 10) << 12;

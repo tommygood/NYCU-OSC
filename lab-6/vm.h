@@ -73,6 +73,7 @@ void free_user_pgd(unsigned long *pgd);
 void map_pages(unsigned long *pgd, unsigned long va, unsigned long pa,
                unsigned long size, unsigned long prot);
 void switch_mm(unsigned long *pgd);
+unsigned long *walk_pgd(unsigned long *pgd, unsigned long va, int alloc);
 int page_is_mapped(unsigned long *pgd, unsigned long va);
 
 /* CoW reference counting */

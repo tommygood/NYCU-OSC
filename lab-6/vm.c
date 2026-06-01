@@ -194,34 +194,37 @@ unsigned long *create_user_pgd(void) {
 }
 
 /*
- * Walk the 3-level page table, allocating intermediate tables as needed.
- * Maps a single 4KB page: VA → PA with given protection flags.
+ * Walk the 3-level page table. If alloc=1, allocate missing intermediate tables.
+ * Returns pointer to the PTE entry, or NULL if not mapped (and alloc=0).
  */
-static void pagewalk(unsigned long *user_pgd, unsigned long va,
-                     unsigned long pa, unsigned long prot) {
-    /* Level 2: PGD */
+unsigned long *walk_pgd(unsigned long *user_pgd, unsigned long va, int alloc) {
     int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
     if (!(user_pgd[vpn2] & PTE_V)) {
+        if (!alloc) return 0;
         unsigned long *pmd = (unsigned long *)allocate(PAGE_SIZE);
-        if (!pmd) return;
+        if (!pmd) return 0;
         k_memset(pmd, 0, PAGE_SIZE);
         user_pgd[vpn2] = MAKE_PTE(VA_TO_PA((unsigned long)pmd), PTE_V);
     }
     unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
 
-    /* Level 1: PMD */
     int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
     if (!(pmd[vpn1] & PTE_V)) {
+        if (!alloc) return 0;
         unsigned long *pte = (unsigned long *)allocate(PAGE_SIZE);
-        if (!pte) return;
+        if (!pte) return 0;
         k_memset(pte, 0, PAGE_SIZE);
         pmd[vpn1] = MAKE_PTE(VA_TO_PA((unsigned long)pte), PTE_V);
     }
     unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
 
-    /* Level 0: PTE (leaf) */
     int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
-    pte[vpn0] = MAKE_PTE(pa, prot);
+    return &pte[vpn0];
+}
+
+int page_is_mapped(unsigned long *user_pgd, unsigned long va) {
+    unsigned long *pte = walk_pgd(user_pgd, va, 0);
+    return pte && (*pte & PTE_V);
 }
 
 /*
@@ -229,8 +232,10 @@ static void pagewalk(unsigned long *user_pgd, unsigned long va,
  */
 void map_pages(unsigned long *user_pgd, unsigned long va, unsigned long pa,
                unsigned long size, unsigned long prot) {
-    for (unsigned long off = 0; off < size; off += PAGE_SIZE)
-        pagewalk(user_pgd, va + off, pa + off, prot);
+    for (unsigned long off = 0; off < size; off += PAGE_SIZE) {
+        unsigned long *pte = walk_pgd(user_pgd, va + off, 1);
+        if (pte) *pte = MAKE_PTE(pa + off, prot);
+    }
 }
 
 /*
