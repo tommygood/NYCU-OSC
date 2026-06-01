@@ -56,7 +56,6 @@ struct task_struct {
     unsigned long kernel_sp;      /* top of kernel stack */
     unsigned long user_sp;        /* user stack top */
     unsigned long stack;          /* kernel stack base (for free) */
-    unsigned long user_stack;     /* user stack base (for free) */
     unsigned long prog;           /* user program base (for free/fork) */
     unsigned long prog_size;      /* user program size */
     unsigned long *pgd;           /* per-process page table (VA) */

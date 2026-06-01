@@ -251,7 +251,6 @@ static void exec_thread_fn(void) {
 
     cur->prog = (unsigned long)prog;
     cur->prog_size = (unsigned long)size;
-    cur->user_stack = 0;
     cur->user_sp = USER_STACK_TOP;
 
     /* Create per-process page table */

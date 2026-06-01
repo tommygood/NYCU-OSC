@@ -81,7 +81,6 @@ struct task_struct *thread_create(void (*fn)()) {
     task->stack = (unsigned long)stack;
     task->kernel_sp = (unsigned long)stack + STACK_SIZE;
     task->user_sp = 0;
-    task->user_stack = 0;
     task->prog = 0;
     task->prog_size = 0;
     task->pgd = 0;
@@ -140,7 +139,6 @@ void kill_zombies(void) {
             dequeue(p);
             if (p->pgd) { free_user_pgd(p->pgd); p->pgd = 0; }
             if (p->stack) free((void *)p->stack);
-            /* Don't free user_stack/prog here — free_user_pgd freed the physical pages */
             free(p);
         }
         p = next;
@@ -226,7 +224,6 @@ long sys_fork(struct trap_frame *parent_tf) {
     child->state = TASK_RUNNING;
     child->stack = (unsigned long)kstack;
     child->kernel_sp = (unsigned long)kstack + STACK_SIZE;
-    child->user_stack = 0;
     child->prog = parent->prog;
     child->prog_size = parent->prog_size;
     child->user_sp = USER_STACK_TOP;
@@ -268,7 +265,7 @@ long sys_fork(struct trap_frame *parent_tf) {
 
             /* Increment reference count */
             ref_page_inc(pa);
-            /* Also count for parent (if first time sharing) */
+            /* Also count for parent (if first time sharing, check here since same parent could fork multiple times) */
             if (ref_page_count(pa) == 1) ref_page_inc(pa);
         }
     }
@@ -320,7 +317,6 @@ int sys_exec(const char *path, struct trap_frame *tf) {
 
     current->prog = (unsigned long)prog;
     current->prog_size = (unsigned long)size;
-    current->user_stack = 0;
     current->user_sp = USER_STACK_TOP;
 
     /* Map user code at VA 0x0 (read + execute) */
