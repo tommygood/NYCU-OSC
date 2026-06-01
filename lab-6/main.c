@@ -249,13 +249,9 @@ static void exec_thread_fn(void) {
     if (!prog) { uart_puts("Failed to allocate prog\r\n"); free(ea); return; }
     for (int i = 0; i < size; i++) ((uint8_t *)prog)[i] = data[i];
 
-    /* Allocate user stack */
-    void *ustack = allocate(USER_STACK_SIZE);
-    if (!ustack) { free(prog); free(ea); return; }
-
     cur->prog = (unsigned long)prog;
     cur->prog_size = (unsigned long)size;
-    cur->user_stack = (unsigned long)ustack;
+    cur->user_stack = 0;
     cur->user_sp = USER_STACK_TOP;
 
     /* Create per-process page table */
@@ -265,15 +261,15 @@ static void exec_thread_fn(void) {
     extern void switch_mm(unsigned long *pgd);
 
     cur->pgd = create_user_pgd();
-    if (!cur->pgd) { free(prog); free(ustack); free(ea); return; }
+    if (!cur->pgd) { free(prog); free(ea); return; }
 
-    /* Map user code at VA 0x0, stack below USER_STACK_TOP */
+    /* Map user code at VA 0x0 */
     map_pages(cur->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
               (unsigned long)size, PROT_USER_RWX);
-    map_pages(cur->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
-              USER_STACK_SIZE, PROT_USER_RW);
 
-    /* Register code and stack as VMAs so mmap detects overlaps */
+    /* User stack: demand-paged — only record VMA, pages allocated on fault */
+
+    /* Register code and stack as VMAs */
     unsigned long prog_mapped_size = ((unsigned long)size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     for (int i = 0; i < MAX_VMAS; i++) cur->vmas[i].active = 0;
     cur->vmas[0].start = USER_CODE_VA;

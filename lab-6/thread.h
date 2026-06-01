@@ -90,6 +90,7 @@ void sys_exit(int status);
 long sys_waitpid(long pid);
 int sys_stop(long pid);
 unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int flags);
+int handle_page_fault(unsigned long fault_addr);
 unsigned long sys_signal(int signum, void (*handler)());
 void sys_sigreturn(struct trap_frame *tf);
 int sys_kill(int pid, int signum);

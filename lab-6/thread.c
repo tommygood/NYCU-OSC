@@ -260,7 +260,7 @@ long sys_fork(struct trap_frame *parent_tf) {
     map_pages(child->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)child_ustack),
               USER_STACK_SIZE, PROT_USER_RW);
 
-    /* Copy mmap regions from parent */
+    /* Copy mmap regions from parent — only copy pages that are actually mapped */
     for (int i = 0; i < MAX_VMAS; i++) {
         child->vmas[i] = parent->vmas[i];
         if (!parent->vmas[i].active) continue;
@@ -270,10 +270,11 @@ long sys_fork(struct trap_frame *parent_tf) {
         if (parent->vmas[i].prot & PROT_WRITE) pte_prot |= PTE_W;
         if (parent->vmas[i].prot & PROT_EXEC)  pte_prot |= PTE_X;
         for (unsigned long off = 0; off < parent->vmas[i].size; off += PAGE_SIZE) {
+            unsigned long src_va = parent->vmas[i].start + off;
+            /* Skip pages not yet mapped (demand-paged but never accessed) */
+            if (!page_is_mapped(parent->pgd, src_va)) continue;
             void *page = allocate(PAGE_SIZE);
             if (!page) continue;
-            /* Copy content from parent's mapping via user VA */
-            unsigned long src_va = parent->vmas[i].start + off;
             k_memcpy(page, (void *)src_va, PAGE_SIZE);
             map_pages(child->pgd, src_va, VA_TO_PA((unsigned long)page),
                       PAGE_SIZE, pte_prot);
@@ -322,24 +323,18 @@ int sys_exec(const char *path, struct trap_frame *tf) {
     if (!prog) { free_user_pgd(current->pgd); current->pgd = 0; return -1; }
     k_memcpy(prog, data, (unsigned long)size);
 
-    /* Allocate user stack */
-    void *ustack = allocate(USER_STACK_SIZE);
-    if (!ustack) { free(prog); free_user_pgd(current->pgd); current->pgd = 0; return -1; }
-
     current->prog = (unsigned long)prog;
     current->prog_size = (unsigned long)size;
-    current->user_stack = (unsigned long)ustack;
+    current->user_stack = 0;
     current->user_sp = USER_STACK_TOP;
 
     /* Map user code at VA 0x0 (read + execute) */
     map_pages(current->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
               (unsigned long)size, PROT_USER_RWX);
 
-    /* Map user stack */
-    map_pages(current->pgd, USER_STACK_VA, VA_TO_PA((unsigned long)ustack),
-              USER_STACK_SIZE, PROT_USER_RW);
+    /* User stack: demand-paged — only record VMA, pages allocated on fault */
 
-    /* Register code and stack as VMAs so mmap detects overlaps */
+    /* Register code and stack as VMAs */
     unsigned long prog_mapped_size = ((unsigned long)size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     for (int i = 0; i < MAX_VMAS; i++) current->vmas[i].active = 0;
     current->vmas[0].start = USER_CODE_VA;
@@ -489,8 +484,9 @@ unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int f
     }
     if (slot < 0) return (unsigned long)-1;
 
-    /* Only allocate and map pages if accessible (not PROT_NONE) */
-    if (prot != PROT_NONE) {
+    /* Only allocate pages immediately if MAP_POPULATE and not PROT_NONE.
+     * Otherwise, pages are allocated on demand via page fault handler. */
+    if (prot != PROT_NONE && (flags & MAP_POPULATE)) {
         /* Convert prot to PTE flags */
         unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
         if (prot & PROT_READ)  pte_prot |= PTE_R;
@@ -517,6 +513,67 @@ unsigned long sys_mmap(unsigned long addr, unsigned long length, int prot, int f
     current->vmas[slot].active = 1;
 
     return target;
+}
+
+/* ---- Demand paging ---- */
+
+/*
+ * Handle a page fault at the given address.
+ * Returns 1 if the fault was handled (page allocated), 0 if segfault.
+ */
+/* Check if a page is already mapped in the page table */
+int page_is_mapped(unsigned long *user_pgd, unsigned long va) {
+    int vpn2 = (va >> PGD_SHIFT) & 0x1FF;
+    if (!(user_pgd[vpn2] & PTE_V)) return 0;
+    unsigned long *pmd = (unsigned long *)PA_TO_VA((user_pgd[vpn2] >> 10) << 12);
+    int vpn1 = (va >> PMD_SHIFT) & 0x1FF;
+    if (!(pmd[vpn1] & PTE_V)) return 0;
+    unsigned long *pte = (unsigned long *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
+    int vpn0 = (va >> PTE_SHIFT) & 0x1FF;
+    return (pte[vpn0] & PTE_V) ? 1 : 0;
+}
+
+int handle_page_fault(unsigned long fault_addr) {
+    struct task_struct *current = get_current();
+    if (!current->pgd) return 0;
+
+    /* Page-align the fault address */
+    unsigned long page_va = fault_addr & ~(PAGE_SIZE - 1);
+
+    /* If the page is already mapped, this is a permission fault → segfault */
+    if (page_is_mapped(current->pgd, page_va)) return 0;
+
+    /* Find the VMA that contains the fault address */
+    for (int i = 0; i < MAX_VMAS; i++) {
+        if (!current->vmas[i].active) continue;
+        unsigned long vs = current->vmas[i].start;
+        unsigned long ve = vs + current->vmas[i].size;
+        if (fault_addr >= vs && fault_addr < ve) {
+            int prot = current->vmas[i].prot;
+            if (prot == PROT_NONE) return 0;  /* PROT_NONE → segfault */
+
+            /* Convert prot to PTE flags */
+            unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
+            if (prot & PROT_READ)  pte_prot |= PTE_R;
+            if (prot & PROT_WRITE) pte_prot |= PTE_W;
+            if (prot & PROT_EXEC)  pte_prot |= PTE_X;
+
+            /* Allocate and map a single page */
+            void *page = allocate(PAGE_SIZE);
+            if (!page) return 0;
+            k_memset(page, 0, PAGE_SIZE);
+            map_pages(current->pgd, page_va, VA_TO_PA((unsigned long)page),
+                      PAGE_SIZE, pte_prot);
+            asm volatile("sfence.vma" ::: "memory");
+
+            uart_puts("[Translation fault]: ");
+            uart_hex(fault_addr);
+            uart_puts("\r\n");
+            return 1;
+        }
+    }
+
+    return 0;  /* fault address not in any VMA → segfault */
 }
 
 /* ---- Signal handling ---- */

@@ -261,15 +261,16 @@ void do_trap(struct trap_frame *tf) {
         case 12: /* Instruction page fault */
         case 13: /* Load page fault */
         case 15: /* Store/AMO page fault */
-            /* User-mode page fault: log and kill the process */
+            /* User-mode page fault */
             if (!(tf->sstatus & SSTATUS_SPP)) {
-                uart_puts("[segfault] pid=");
+                /* Try demand paging — check if fault addr is in a valid VMA */
+                if (handle_page_fault(tf->stval)) {
+                    break;  /* page allocated, resume user process */
+                }
+                /* Not in any VMA → segmentation fault */
+                uart_puts("[Segmentation fault]: Kill Process ");
                 uart_putdec((unsigned long)get_current()->pid);
-                uart_puts(" scause=");
-                uart_putdec(code);
-                uart_puts(" sepc=");
-                uart_hex(tf->sepc);
-                uart_puts(" stval=");
+                uart_puts(" at ");
                 uart_hex(tf->stval);
                 uart_puts("\r\n");
                 thread_exit();

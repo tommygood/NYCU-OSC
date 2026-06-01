@@ -73,5 +73,6 @@ void free_user_pgd(unsigned long *pgd);
 void map_pages(unsigned long *pgd, unsigned long va, unsigned long pa,
                unsigned long size, unsigned long prot);
 void switch_mm(unsigned long *pgd);
+int page_is_mapped(unsigned long *pgd, unsigned long va);
 
 #endif /* VM_H */
