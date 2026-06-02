@@ -321,7 +321,7 @@ int sys_exec(const char *path, struct trap_frame *tf) {
 
     /* Map user code at VA 0x0 (read + execute) */
     map_pages(current->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
-              (unsigned long)size, PROT_USER_RWX);
+              (unsigned long)size, PROT_USER_RX);
 
     /* User stack: demand-paged — only record VMA, pages allocated on fault */
 

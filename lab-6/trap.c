@@ -274,7 +274,6 @@ void do_trap(struct trap_frame *tf) {
                 uart_hex(tf->stval);
                 uart_puts("\r\n");
                 thread_exit();
-                while (1);
             }
             /* Fall through for S-mode faults */
         default:
