@@ -244,12 +244,8 @@ static void exec_thread_fn(void) {
         free(ea);
         return;
     }
-    /* Allocate and copy program */
-    void *prog = allocate((unsigned long)size);
-    if (!prog) { uart_puts("Failed to allocate prog\r\n"); free(ea); return; }
-    for (int i = 0; i < size; i++) ((uint8_t *)prog)[i] = data[i];
-
-    cur->prog = (unsigned long)prog;
+    /* Use initrd data directly as backing store — code pages are demand-paged */
+    cur->prog = (unsigned long)data;
     cur->prog_size = (unsigned long)size;
     cur->user_sp = USER_STACK_TOP;
 
@@ -260,11 +256,7 @@ static void exec_thread_fn(void) {
     extern void switch_mm(unsigned long *pgd);
 
     cur->pgd = create_user_pgd();
-    if (!cur->pgd) { free(prog); free(ea); return; }
-
-    /* Map user code at VA 0x0 */
-    map_pages(cur->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
-              (unsigned long)size, PROT_USER_RWX);
+    if (!cur->pgd) { free(ea); return; }
 
     /* User stack: demand-paged — only record VMA, pages allocated on fault */
 

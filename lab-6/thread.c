@@ -310,18 +310,10 @@ int sys_exec(const char *path, struct trap_frame *tf) {
     current->pgd = create_user_pgd();
     if (!current->pgd) return -1;
 
-    /* Allocate and copy program */
-    void *prog = allocate((unsigned long)size);
-    if (!prog) { free_user_pgd(current->pgd); current->pgd = 0; return -1; }
-    k_memcpy(prog, data, (unsigned long)size);
-
-    current->prog = (unsigned long)prog;
+    /* Use initrd data directly as backing store — code pages are demand-paged */
+    current->prog = (unsigned long)data;
     current->prog_size = (unsigned long)size;
     current->user_sp = USER_STACK_TOP;
-
-    /* Map user code at VA 0x0 (read + execute) */
-    map_pages(current->pgd, USER_CODE_VA, VA_TO_PA((unsigned long)prog),
-              (unsigned long)size, PROT_USER_RX);
 
     /* User stack: demand-paged — only record VMA, pages allocated on fault */
 
@@ -572,6 +564,17 @@ int handle_page_fault(unsigned long fault_addr) {
             void *page = allocate(PAGE_SIZE);
             if (!page) return 0;
             k_memset(page, 0, PAGE_SIZE);
+
+            /* For code VMA, copy content from backing store (initrd) */
+            if (current->prog && page_va >= vs &&
+                page_va < (unsigned long)current->prog_size + vs &&
+                vs == USER_CODE_VA) {
+                unsigned long offset = page_va - vs;
+                unsigned long copy_len = current->prog_size - offset;
+                if (copy_len > PAGE_SIZE) copy_len = PAGE_SIZE;
+                k_memcpy(page, (void *)(current->prog + offset), copy_len);
+            }
+
             map_pages(current->pgd, page_va, VA_TO_PA((unsigned long)page),
                       PAGE_SIZE, pte_prot);
 
@@ -579,6 +582,8 @@ int handle_page_fault(unsigned long fault_addr) {
             ref_page_inc(VA_TO_PA((unsigned long)page));
 
             asm volatile("sfence.vma" ::: "memory");
+            if (prot & PROT_EXEC)
+                asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
             uart_puts("[Translation fault]: ");
             uart_hex(fault_addr);
             uart_puts("\r\n");

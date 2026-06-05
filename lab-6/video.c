@@ -10,6 +10,7 @@ typedef unsigned long  uint64_t;
 typedef unsigned short uint16_t;
 
 #include "vm.h"
+#include "thread.h"
 
 extern void *k_memcpy(void *dst, const void *src, unsigned long n);
 extern int k_strncmp(const char *a, const char *b, unsigned long n);
@@ -187,6 +188,17 @@ void video_display(unsigned int *bmp_image, unsigned int width, unsigned int hei
     if (width > (unsigned int)FB_WIDTH || height > (unsigned int)FB_HEIGHT) {
       uart_puts("video: width or height exceeds framebuffer size\r\n");
       return;
+    }
+
+    /* Pre-fault user pages that we'll read from (demand paging) */
+    struct task_struct *cur = get_current();
+    if (cur->pgd) {
+        unsigned long ustart = (unsigned long)bmp_image;
+        unsigned long uend = ustart + (unsigned long)height * width * sizeof(unsigned int);
+        for (unsigned long va = ustart & ~0xFFFUL; va < uend; va += 0x1000) {
+            if (!page_is_mapped(cur->pgd, va))
+                handle_page_fault(va);
+        }
     }
 
     unsigned int *fb = (unsigned int *)FB_BASE;
