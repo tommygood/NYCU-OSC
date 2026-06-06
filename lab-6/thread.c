@@ -566,9 +566,7 @@ int handle_page_fault(unsigned long fault_addr) {
             k_memset(page, 0, PAGE_SIZE);
 
             /* For code VMA, copy content from backing store (initrd) */
-            if (current->prog && page_va >= vs &&
-                page_va < (unsigned long)current->prog_size + vs &&
-                vs == USER_CODE_VA) {
+            if (current->prog && vs == USER_CODE_VA) {
                 unsigned long offset = page_va - vs;
                 unsigned long copy_len = current->prog_size - offset;
                 if (copy_len > PAGE_SIZE) copy_len = PAGE_SIZE;
