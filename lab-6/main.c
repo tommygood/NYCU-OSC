@@ -265,7 +265,7 @@ static void exec_thread_fn(void) {
     for (int i = 0; i < MAX_VMAS; i++) cur->vmas[i].active = 0;
     cur->vmas[0].start = USER_CODE_VA;
     cur->vmas[0].size = prog_mapped_size;
-    cur->vmas[0].prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+    cur->vmas[0].prot = PROT_READ | PROT_EXEC;
     cur->vmas[0].active = 1;
     cur->vmas[1].start = USER_STACK_VA;
     cur->vmas[1].size = USER_STACK_SIZE;

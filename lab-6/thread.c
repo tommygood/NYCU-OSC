@@ -322,7 +322,7 @@ int sys_exec(const char *path, struct trap_frame *tf) {
     for (int i = 0; i < MAX_VMAS; i++) current->vmas[i].active = 0;
     current->vmas[0].start = USER_CODE_VA;
     current->vmas[0].size = prog_mapped_size;
-    current->vmas[0].prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+    current->vmas[0].prot = PROT_READ | PROT_EXEC;
     current->vmas[0].active = 1;
     current->vmas[1].start = USER_STACK_VA;
     current->vmas[1].size = USER_STACK_SIZE;
