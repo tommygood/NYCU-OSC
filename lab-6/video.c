@@ -190,12 +190,12 @@ void video_display(unsigned int *bmp_image, unsigned int width, unsigned int hei
       return;
     }
 
-    /* Pre-fault user pages that we'll read from (demand paging) */
+    /* Pre-fault user pages so kernel can read them (demand paging) */
     struct task_struct *cur = get_current();
     if (cur->pgd) {
         unsigned long ustart = (unsigned long)bmp_image;
         unsigned long uend = ustart + (unsigned long)height * width * sizeof(unsigned int);
-        for (unsigned long va = ustart & ~0xFFFUL; va < uend; va += 0x1000) {
+        for (unsigned long va = ustart & ~(PAGE_SIZE - 1); va < uend; va += PAGE_SIZE) {
             if (!page_is_mapped(cur->pgd, va))
                 handle_page_fault(va);
         }

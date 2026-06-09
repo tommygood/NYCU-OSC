@@ -555,7 +555,7 @@ int handle_page_fault(unsigned long fault_addr) {
             if (prot == PROT_NONE) return 0;  /* PROT_NONE → segfault */
 
             /* Convert prot to PTE flags */
-            unsigned long pte_prot = PTE_V | PTE_U | PTE_A | PTE_D;
+            unsigned long pte_prot = PTE_V | PTE_U | PTE_A;
             if (prot & PROT_READ)  pte_prot |= PTE_R;
             if (prot & PROT_WRITE) pte_prot |= PTE_W;
             if (prot & PROT_EXEC)  pte_prot |= PTE_X;
