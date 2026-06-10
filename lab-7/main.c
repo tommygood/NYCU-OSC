@@ -507,6 +507,83 @@ static void cmd_vfs_test(void) {
         uart_puts("[vfs_test] subdir PASSED\r\n");
     else
         uart_puts("[vfs_test] subdir FAILED\r\n");
+
+    /* ── Basic 2: mount another tmpfs on a subdirectory ────────────── */
+    uart_puts("[vfs_test] mkdir /mnt, mount tmpfs on /mnt\r\n");
+    if (vfs_mkdir("/mnt") != 0) {
+        uart_puts("  mkdir /mnt failed\r\n");
+        return;
+    }
+    if (vfs_mount("/mnt", "tmpfs") != 0) {
+        uart_puts("  mount tmpfs on /mnt failed\r\n");
+        return;
+    }
+
+    uart_puts("[vfs_test] create /mnt/a.txt in mounted fs\r\n");
+    if (vfs_open("/mnt/a.txt", O_CREAT, &f) != 0) {
+        uart_puts("  open(create /mnt/a.txt) failed\r\n");
+        return;
+    }
+    vfs_write(f, "mounted-data", 12);
+    vfs_close(f);
+
+    if (vfs_open("/mnt/a.txt", 0, &f) != 0) {
+        uart_puts("  open(read /mnt/a.txt) failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    len = vfs_read(f, buf, sizeof(buf) - 1);
+    uart_puts("  read "); uart_putdec((unsigned long)len); uart_puts(" bytes: ");
+    uart_puts(buf);
+    uart_puts("\r\n");
+    vfs_close(f);
+
+    if (k_strcmp(buf, "mounted-data") == 0)
+        uart_puts("[vfs_test] mount PASSED\r\n");
+    else
+        uart_puts("[vfs_test] mount FAILED\r\n");
+
+    /* Verify root fs files still accessible after mount */
+    if (vfs_open("/hello.txt", 0, &f) != 0) {
+        uart_puts("[vfs_test] root isolation FAILED (can't read /hello.txt)\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    vfs_read(f, buf, sizeof(buf) - 1);
+    vfs_close(f);
+    if (k_strcmp(buf, "Hello from tmpfs!") == 0)
+        uart_puts("[vfs_test] root isolation PASSED\r\n");
+    else
+        uart_puts("[vfs_test] root isolation FAILED\r\n");
+
+    /* Multi-level: mkdir inside mounted fs */
+    uart_puts("[vfs_test] mkdir /mnt/sub, create /mnt/sub/b.txt\r\n");
+    if (vfs_mkdir("/mnt/sub") != 0) {
+        uart_puts("  mkdir /mnt/sub failed\r\n");
+        return;
+    }
+    if (vfs_open("/mnt/sub/b.txt", O_CREAT, &f) != 0) {
+        uart_puts("  open(create /mnt/sub/b.txt) failed\r\n");
+        return;
+    }
+    vfs_write(f, "deep-mount", 10);
+    vfs_close(f);
+
+    if (vfs_open("/mnt/sub/b.txt", 0, &f) != 0) {
+        uart_puts("  open(read /mnt/sub/b.txt) failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    len = vfs_read(f, buf, sizeof(buf) - 1);
+    uart_puts("  read "); uart_putdec((unsigned long)len); uart_puts(" bytes: ");
+    uart_puts(buf);
+    uart_puts("\r\n");
+    vfs_close(f);
+
+    if (k_strcmp(buf, "deep-mount") == 0)
+        uart_puts("[vfs_test] multi-level mount PASSED\r\n");
+    else
+        uart_puts("[vfs_test] multi-level mount FAILED\r\n");
 }
 
 /* ── Shell ───────────────────────────────────────────────────────────────── */
