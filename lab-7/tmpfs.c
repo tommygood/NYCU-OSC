@@ -54,6 +54,7 @@ static struct vnode *tmpfs_create_vnode(enum fsnode_type type) {
     struct tmpfs_vnode *inode = (struct tmpfs_vnode *)allocate(sizeof(struct tmpfs_vnode));
     if (!inode) { free(node); return 0; }
     node->mount = 0;
+    node->parent = node;
     node->internal = inode;
     node->v_ops = &tmpfs_vnode_ops;
     node->f_ops = &tmpfs_file_ops;
@@ -136,10 +137,10 @@ static int tmpfs_create(struct vnode *dir_node, struct vnode **target,
             return -1;
     }
 
-    // create the vnode for new file
     struct vnode *node = tmpfs_create_vnode(FS_FILE);
     if (!node) return -1;
-    
+    node->parent = dir_node;
+
     struct tmpfs_vnode *inode = (struct tmpfs_vnode *)node->internal;
     k_strncpy(inode->name, component_name, TMPFS_MAX_FILE_NAME);
     // set last char to null terminator in case component_name as longer than TMPFS_MAX_FILE_NAME
@@ -165,6 +166,7 @@ static int tmpfs_mkdir_op(struct vnode *dir_node, struct vnode **target,
     }
     struct vnode *node = tmpfs_create_vnode(FS_DIR);
     if (!node) return -1;
+    node->parent = dir_node;
     struct tmpfs_vnode *inode = (struct tmpfs_vnode *)node->internal;
     k_strncpy(inode->name, component_name, TMPFS_MAX_FILE_NAME);
     inode->name[TMPFS_MAX_FILE_NAME] = '\0';

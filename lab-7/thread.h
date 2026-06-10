@@ -5,6 +5,7 @@
 #define THREAD_H
 
 #include "trap.h"
+#include "vfs.h"
 
 #define STACK_SIZE   0x4000   /* 16 KiB per kernel stack */
 #define USER_STACK_SIZE 0x4000
@@ -70,6 +71,9 @@ struct task_struct {
     int pending_sig;                 /* pending signal number, -1 if none. This is fine since we don't need to handle nested signal handler */
     struct trap_frame *saved_tf;     /* saved user context before signal handler */
     unsigned long sig_stack;         /* signal handler stack base (for free) */
+    /* VFS per-process state */
+    struct vnode *cwd;
+    struct file *fd_table[MAX_FD];
 };
 
 /* Thread API */

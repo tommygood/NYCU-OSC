@@ -5,6 +5,7 @@
 #include "mm.h"
 #include "timer.h"
 #include "vm.h"
+#include "vfs.h"
 
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
@@ -92,6 +93,8 @@ struct task_struct *thread_create(void (*fn)()) {
     task->pending_sig = -1;
     task->saved_tf = 0;
     task->sig_stack = 0;
+    task->cwd = rootfs ? rootfs->root : 0;
+    for (int i = 0; i < MAX_FD; i++) task->fd_table[i] = 0;
 
     /* Set up context: ra = thread_entry, sp = top of stack */
     task->thread.ra = (unsigned long)thread_entry;
@@ -150,6 +153,12 @@ void kill_zombies(void) {
 
 void thread_exit(void) {
     struct task_struct *current = get_current();
+    for (int i = 0; i < MAX_FD; i++) {
+        if (current->fd_table[i]) {
+            vfs_close(current->fd_table[i]);
+            current->fd_table[i] = 0;
+        }
+    }
     current->state = TASK_ZOMBIE;
 
     /* Wake up any task waiting on us */
@@ -233,6 +242,15 @@ long sys_fork(struct trap_frame *parent_tf) {
     child->pending_sig = -1;
     child->saved_tf = 0;
     child->sig_stack = 0;
+    child->cwd = parent->cwd;
+    for (int i = 0; i < MAX_FD; i++) {
+        if (parent->fd_table[i]) {
+            child->fd_table[i] = (struct file *)allocate(sizeof(struct file));
+            k_memcpy(child->fd_table[i], parent->fd_table[i], sizeof(struct file));
+        } else {
+            child->fd_table[i] = 0;
+        }
+    }
 
     /* Create child's page table with kernel mappings */
     child->pgd = create_user_pgd();

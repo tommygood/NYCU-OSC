@@ -6,6 +6,7 @@
 #include "plic.h"
 #include "timer.h"
 #include "thread.h"
+#include "vfs.h"
 
 extern void uart_puts(const char *s);
 extern void uart_hex(unsigned long h);
@@ -187,6 +188,90 @@ static void handle_ecall(struct trap_frame *tf) {
 
     case 13: /* mmap(addr, length, prot, flags) */
         tf->a0 = sys_mmap(tf->a0, tf->a1, (int)tf->a2, (int)tf->a3);
+        break;
+
+    case 14: /* open(pathname, flags) */
+        {
+            const char *path = (const char *)tf->a0;
+            int flags = (int)tf->a1;
+            struct task_struct *cur = get_current();
+            int fd = -1;
+            for (int i = 0; i < MAX_FD; i++) {
+                if (!cur->fd_table[i]) { fd = i; break; }
+            }
+            if (fd < 0) { tf->a0 = (unsigned long)-1; break; }
+            struct file *f;
+            if (vfs_open(path, flags, &f) != 0) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            cur->fd_table[fd] = f;
+            tf->a0 = (unsigned long)fd;
+        }
+        break;
+
+    case 15: /* close(fd) */
+        {
+            int fd = (int)tf->a0;
+            struct task_struct *cur = get_current();
+            if (fd < 0 || fd >= MAX_FD || !cur->fd_table[fd]) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            vfs_close(cur->fd_table[fd]);
+            cur->fd_table[fd] = 0;
+            tf->a0 = 0;
+        }
+        break;
+
+    case 16: /* read(fd, buf, count) */
+        {
+            int fd = (int)tf->a0;
+            void *buf = (void *)tf->a1;
+            unsigned long count = tf->a2;
+            struct task_struct *cur = get_current();
+            if (fd < 0 || fd >= MAX_FD || !cur->fd_table[fd]) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            tf->a0 = (unsigned long)vfs_read(cur->fd_table[fd], buf, count);
+        }
+        break;
+
+    case 17: /* write(fd, buf, count) */
+        {
+            int fd = (int)tf->a0;
+            const void *buf = (const void *)tf->a1;
+            unsigned long count = tf->a2;
+            struct task_struct *cur = get_current();
+            if (fd < 0 || fd >= MAX_FD || !cur->fd_table[fd]) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            tf->a0 = (unsigned long)vfs_write(cur->fd_table[fd], buf, count);
+        }
+        break;
+
+    case 18: /* mkdir(pathname, mode) */
+        {
+            const char *path = (const char *)tf->a0;
+            tf->a0 = (unsigned long)vfs_mkdir(path);
+        }
+        break;
+
+    case 19: /* mount(src, target, filesystem, flags, data) */
+        {
+            const char *target_path = (const char *)tf->a1;
+            const char *fsname = (const char *)tf->a2;
+            tf->a0 = (unsigned long)vfs_mount(target_path, fsname);
+        }
+        break;
+
+    case 20: /* chdir(path) */
+        {
+            const char *path = (const char *)tf->a0;
+            tf->a0 = (unsigned long)vfs_chdir(path);
+        }
         break;
 
     default:

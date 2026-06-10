@@ -584,6 +584,75 @@ static void cmd_vfs_test(void) {
         uart_puts("[vfs_test] multi-level mount PASSED\r\n");
     else
         uart_puts("[vfs_test] multi-level mount FAILED\r\n");
+
+    /* ── Basic 3: relative paths, . , .. , chdir ───────────────── */
+
+    /* chdir into /mydir, use relative open */
+    uart_puts("[vfs_test] chdir /mydir, relative open\r\n");
+    if (vfs_chdir("/mydir") != 0) {
+        uart_puts("  chdir /mydir failed\r\n");
+        return;
+    }
+    if (vfs_open("test.txt", 0, &f) != 0) {
+        uart_puts("  relative open test.txt failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    len = vfs_read(f, buf, sizeof(buf) - 1);
+    vfs_close(f);
+    if (k_strcmp(buf, "nested file") == 0)
+        uart_puts("[vfs_test] chdir+relative PASSED\r\n");
+    else
+        uart_puts("[vfs_test] chdir+relative FAILED\r\n");
+
+    /* .. traversal */
+    uart_puts("[vfs_test] open ../hello.txt (..)\r\n");
+    if (vfs_open("../hello.txt", 0, &f) != 0) {
+        uart_puts("  open ../hello.txt failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    vfs_read(f, buf, sizeof(buf) - 1);
+    vfs_close(f);
+    if (k_strcmp(buf, "Hello from tmpfs!") == 0)
+        uart_puts("[vfs_test] dotdot PASSED\r\n");
+    else
+        uart_puts("[vfs_test] dotdot FAILED\r\n");
+
+    /* . traversal */
+    uart_puts("[vfs_test] open ./test.txt (.)\r\n");
+    if (vfs_open("./test.txt", 0, &f) != 0) {
+        uart_puts("  open ./test.txt failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    vfs_read(f, buf, sizeof(buf) - 1);
+    vfs_close(f);
+    if (k_strcmp(buf, "nested file") == 0)
+        uart_puts("[vfs_test] dot PASSED\r\n");
+    else
+        uart_puts("[vfs_test] dot FAILED\r\n");
+
+    /* .. across mount boundary */
+    uart_puts("[vfs_test] chdir /mnt/sub, open ../../hello.txt\r\n");
+    if (vfs_chdir("/mnt/sub") != 0) {
+        uart_puts("  chdir /mnt/sub failed\r\n");
+        return;
+    }
+    if (vfs_open("../../hello.txt", 0, &f) != 0) {
+        uart_puts("  open ../../hello.txt failed\r\n");
+        return;
+    }
+    k_memset(buf, 0, sizeof(buf));
+    vfs_read(f, buf, sizeof(buf) - 1);
+    vfs_close(f);
+    if (k_strcmp(buf, "Hello from tmpfs!") == 0)
+        uart_puts("[vfs_test] dotdot-across-mount PASSED\r\n");
+    else
+        uart_puts("[vfs_test] dotdot-across-mount FAILED\r\n");
+
+    /* Restore cwd to root */
+    vfs_chdir("/");
 }
 
 /* ── Shell ───────────────────────────────────────────────────────────────── */

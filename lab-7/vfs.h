@@ -14,6 +14,7 @@ struct vnode {
     struct vnode_operations *v_ops;
     struct file_operations *f_ops;
     void *internal;
+    struct vnode *parent;
 };
 
 struct file {
@@ -26,6 +27,7 @@ struct file {
 struct mount {
     struct vnode *root;
     struct filesystem *fs;
+    struct vnode *mount_point;
 };
 
 struct filesystem {
@@ -59,6 +61,10 @@ int vfs_mkdir(const char *pathname);
 int vfs_mount(const char *target, const char *filesystem);
 int vfs_lookup(const char *pathname, struct vnode **target);
 
+int vfs_chdir(const char *path);
+
 void rootfs_init(void);
+
+extern struct mount *rootfs;
 
 #endif /* VFS_H */
