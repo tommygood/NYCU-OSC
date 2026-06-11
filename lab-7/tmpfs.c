@@ -114,6 +114,7 @@ static int tmpfs_write(struct file *file, const void *buf, size_t len) {
 static int tmpfs_lookup(struct vnode *dir_node, struct vnode **target,
                         const char *component_name) {
     struct tmpfs_vnode *dentry = (struct tmpfs_vnode *)dir_node->internal;
+    if (dentry->type != FS_DIR) return -1;
     for (int i = 0; i < TMPFS_MAX_DIR_ENTRY; i++) {
         if (!dentry->entry[i])
             return -1;
@@ -129,7 +130,7 @@ static int tmpfs_lookup(struct vnode *dir_node, struct vnode **target,
 static int tmpfs_create(struct vnode *dir_node, struct vnode **target,
                         const char *component_name) {
     struct tmpfs_vnode *dir = (struct tmpfs_vnode *)dir_node->internal;
-    // check if the file already exists
+    if (dir->type != FS_DIR) return -1;
     for (int i = 0; i < TMPFS_MAX_DIR_ENTRY; i++) {
         if (!dir->entry[i]) continue;
         struct tmpfs_vnode *inode = (struct tmpfs_vnode *)dir->entry[i]->internal;
@@ -158,6 +159,7 @@ static int tmpfs_create(struct vnode *dir_node, struct vnode **target,
 static int tmpfs_mkdir_op(struct vnode *dir_node, struct vnode **target,
                           const char *component_name) {
     struct tmpfs_vnode *dir = (struct tmpfs_vnode *)dir_node->internal;
+    if (dir->type != FS_DIR) return -1;
     for (int i = 0; i < TMPFS_MAX_DIR_ENTRY; i++) {
         if (!dir->entry[i]) continue;
         struct tmpfs_vnode *inode = (struct tmpfs_vnode *)dir->entry[i]->internal;

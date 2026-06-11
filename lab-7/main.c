@@ -32,7 +32,7 @@ typedef unsigned long      size_t;
 /* ── Globals ─────────────────────────────────────────────────────────────── */
 unsigned long saved_hart_id;
 static const void *g_fdt    = 0;
-static const void *g_initrd = 0;
+const void *g_initrd = 0;
 
 /* ── String helpers (string.c) ───────────────────────────────────────────── */
 extern size_t k_strlen(const char *s);
@@ -773,7 +773,9 @@ void kernel_main(void *fdt) {
     else uart_puts("MM init failed.\r\n");
 
     rootfs_init();
-    uart_puts("VFS ready (tmpfs root mounted).\r\n");
+    extern void ramfs_init(void);
+    ramfs_init();
+    uart_puts("VFS ready (tmpfs + ramfs mounted).\r\n");
 
     /* Initialize framebuffer */
     extern void video_init(const void *fdt);
