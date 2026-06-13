@@ -346,12 +346,9 @@ void do_trap(struct trap_frame *tf) {
         case 12: /* Instruction page fault */
         case 13: /* Load page fault */
         case 15: /* Store/AMO page fault */
-            if (tf->sstatus & SSTATUS_SPP) {
-                if (handle_page_fault(tf->stval))
-                    return;
-            } else {
-                if (handle_page_fault(tf->stval))
-                    break;
+            if (handle_page_fault(tf->stval))
+                break;
+            if (!(tf->sstatus & SSTATUS_SPP)) {
                 uart_puts("[Segmentation fault]: Kill Process ");
                 uart_putdec((unsigned long)get_current()->pid);
                 uart_puts(" at ");
@@ -373,8 +370,8 @@ void do_trap(struct trap_frame *tf) {
         }
     }
 
-    /* Bottom half: run deferred tasks (manages SIE internally) */
-    process_pending_tasks();
+    /* Bottom half removed: callbacks now run directly in timer IRQ handler */
+    /* process_pending_tasks(); */
 
     /* Unmask the device after tasks are done */
     if (pending_plic_irq)
