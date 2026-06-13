@@ -346,7 +346,10 @@ void do_trap(struct trap_frame *tf) {
         case 12: /* Instruction page fault */
         case 13: /* Load page fault */
         case 15: /* Store/AMO page fault */
-            if (!(tf->sstatus & SSTATUS_SPP)) {
+            if (tf->sstatus & SSTATUS_SPP) {
+                if (handle_page_fault(tf->stval))
+                    return;
+            } else {
                 if (handle_page_fault(tf->stval))
                     break;
                 uart_puts("[Segmentation fault]: Kill Process ");
