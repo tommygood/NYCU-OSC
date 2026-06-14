@@ -343,6 +343,12 @@ void do_trap(struct trap_frame *tf) {
         case EXC_ECALL_U:
             handle_ecall(tf);
             break;
+        case 2: /* Illegal instruction */
+            if (!(tf->sstatus & SSTATUS_SPP)) {
+                tf->sepc += 4;
+                break;
+            }
+            goto unhandled;
         case 12: /* Instruction page fault */
         case 13: /* Load page fault */
         case 15: /* Store/AMO page fault */
@@ -356,7 +362,9 @@ void do_trap(struct trap_frame *tf) {
                 uart_puts("\r\n");
                 thread_exit();
             }
+            /* fall through */
         default:
+        unhandled:
             uart_puts("[trap] exception: scause=");
             uart_hex(scause);
             uart_puts(" sepc=");

@@ -279,6 +279,15 @@ static void exec_thread_fn(void) {
 
     free(ea);
 
+    /* Open /dev/uart as stdin(0), stdout(1), stderr(2) */
+    for (int i = 0; i < 3; i++) {
+        if (!cur->fd_table[i]) {
+            struct file *f;
+            if (vfs_open("/dev/uart", 0, &f) == 0)
+                cur->fd_table[i] = f;
+        }
+    }
+
     /* Flush instruction cache after copying program code */
     asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
 
@@ -775,7 +784,9 @@ void kernel_main(void *fdt) {
     rootfs_init();
     extern void ramfs_init(void);
     ramfs_init();
-    uart_puts("VFS ready (tmpfs + ramfs mounted).\r\n");
+    extern void devfs_init(void);
+    devfs_init();
+    uart_puts("VFS ready (tmpfs + ramfs + devfs mounted).\r\n");
 
     /* Initialize framebuffer */
     extern void video_init(const void *fdt);

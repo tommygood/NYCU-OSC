@@ -5,8 +5,8 @@ OBJCOPY   = $(RISCV_GNU)-objcopy
 CFLAGS    = -mcmodel=medany -ffreestanding -nostdlib -g -Wall
 QEMU      ?= qemu-system-riscv64
 
-SUPPORT_SRCS = uart.c dtb.c string.c sbi.c mm.c plic.c timer.c trap.c thread.c video.c vm.c vfs.c tmpfs.c ramfs.c
-SUPPORT_OBJS = uart.o dtb.o string.o sbi.o mm.o plic.o timer.o trap.o thread.o video.o vm.o vfs.o tmpfs.o ramfs.o
+SUPPORT_SRCS = uart.c dtb.c string.c sbi.c mm.c plic.c timer.c trap.c thread.c video.c vm.c vfs.c tmpfs.c ramfs.c devfs.c
+SUPPORT_OBJS = uart.o dtb.o string.o sbi.o mm.o plic.o timer.o trap.o thread.o video.o vm.o vfs.o tmpfs.o ramfs.o devfs.o
 
 # ── User program (flat binary, placed in rootfs) ──────────────────────────
 user_prog:
