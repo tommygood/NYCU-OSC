@@ -73,6 +73,7 @@ static void ramfs_init_ops(void) {
     ramfs_file_ops.read    = ramfs_read;
     ramfs_file_ops.write   = ramfs_write;
     ramfs_file_ops.lseek64 = 0;
+    ramfs_file_ops.ioctl = 0;
     ramfs_vnode_ops.lookup = ramfs_lookup;
     ramfs_vnode_ops.create = ramfs_create;
     ramfs_vnode_ops.mkdir  = ramfs_mkdir_op;

@@ -274,6 +274,34 @@ static void handle_ecall(struct trap_frame *tf) {
         }
         break;
 
+    case 21: /* lseek64(fd, offset, whence) */
+        {
+            int fd = (int)tf->a0;
+            long offset = (long)tf->a1;
+            int whence = (int)tf->a2;
+            struct task_struct *cur = get_current();
+            if (fd < 0 || fd >= MAX_FD || !cur->fd_table[fd]) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            tf->a0 = (unsigned long)vfs_lseek64(cur->fd_table[fd], offset, whence);
+        }
+        break;
+
+    case 22: /* ioctl(fd, request, arg) */
+        {
+            int fd = (int)tf->a0;
+            unsigned long request = tf->a1;
+            void *arg = (void *)tf->a2;
+            struct task_struct *cur = get_current();
+            if (fd < 0 || fd >= MAX_FD || !cur->fd_table[fd]) {
+                tf->a0 = (unsigned long)-1;
+                break;
+            }
+            tf->a0 = (unsigned long)vfs_ioctl(cur->fd_table[fd], request, arg);
+        }
+        break;
+
     default:
         uart_puts("[syscall] unknown: ");
         uart_putdec(syscall_nr);

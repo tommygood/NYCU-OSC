@@ -535,29 +535,23 @@ int handle_page_fault(unsigned long fault_addr) {
     if (page_is_mapped(current->pgd, page_va)) {
         unsigned long *pte = walk_pgd(current->pgd, page_va, 0);
         if (pte && (*pte & PTE_COW)) {
-            /* Copy-on-Write: allocate new page, copy content, make writable */
             unsigned long old_pa = (*pte >> 10) << 12;
-            void *new_page = allocate(PAGE_SIZE);
-            if (!new_page) return 0;
-            k_memcpy(new_page, (void *)PA_TO_VA(old_pa), PAGE_SIZE);
-
-            /* Restore PTE_W and remove PTE_COW */
             unsigned long flags = (*pte & 0x3FF) | PTE_W;
             flags &= ~PTE_COW;
-            *pte = MAKE_PTE(VA_TO_PA((unsigned long)new_page), flags);
 
-            /* Decrement refcount on old page, free if no longer shared */
-            ref_page_dec(old_pa);
-            if (ref_page_count(old_pa) <= 0)
-                free((void *)PA_TO_VA(old_pa));
-
-            /* Set refcount for new page */
-            ref_page_inc(VA_TO_PA((unsigned long)new_page));
-
+            if (ref_page_count(old_pa) <= 1) {
+                *pte = MAKE_PTE(old_pa, flags);
+            } else {
+                void *new_page = allocate(PAGE_SIZE);
+                if (!new_page) return 0;
+                k_memcpy(new_page, (void *)PA_TO_VA(old_pa), PAGE_SIZE);
+                *pte = MAKE_PTE(VA_TO_PA((unsigned long)new_page), flags);
+                ref_page_dec(old_pa);
+                if (ref_page_count(old_pa) <= 0)
+                    free((void *)PA_TO_VA(old_pa));
+                ref_page_inc(VA_TO_PA((unsigned long)new_page));
+            }
             asm volatile("sfence.vma" ::: "memory");
-            uart_puts("[Permission fault]: ");
-            uart_hex(fault_addr);
-            uart_puts("\r\n");
             return 1;
         }
         return 0;  /* page mapped but not CoW → real permission fault → segfault */
@@ -600,9 +594,6 @@ int handle_page_fault(unsigned long fault_addr) {
             asm volatile("sfence.vma" ::: "memory");
             if (prot & PROT_EXEC)
                 asm volatile(".4byte 0x0000100F" ::: "memory");  /* fence.i */
-            uart_puts("[Translation fault]: ");
-            uart_hex(fault_addr);
-            uart_puts("\r\n");
             return 1;
         }
     }

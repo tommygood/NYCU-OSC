@@ -42,6 +42,7 @@ static void tmpfs_init_ops(void) {
     tmpfs_file_ops.read = tmpfs_read;
     tmpfs_file_ops.write = tmpfs_write;
     tmpfs_file_ops.lseek64 = 0;
+    tmpfs_file_ops.ioctl = 0;
     tmpfs_vnode_ops.lookup = tmpfs_lookup;
     tmpfs_vnode_ops.create = tmpfs_create;
     tmpfs_vnode_ops.mkdir = tmpfs_mkdir_op;

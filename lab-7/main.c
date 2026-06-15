@@ -788,9 +788,7 @@ void kernel_main(void *fdt) {
     devfs_init();
     uart_puts("VFS ready (tmpfs + ramfs + devfs mounted).\r\n");
 
-    /* Initialize framebuffer */
-    extern void video_init(const void *fdt);
-    video_init(fdt);
+    /* Framebuffer is initialized lazily when /dev/fb is opened */
 
     /* Create idle thread (pid 0) and set tp */
     struct task_struct *idle_task = thread_create(idle);

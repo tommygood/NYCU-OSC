@@ -208,6 +208,22 @@ int vfs_chdir(const char *path) {
     return 0;
 }
 
+long vfs_lseek64(struct file *file, long offset, int whence) {
+    if (file->f_ops->lseek64)
+        return file->f_ops->lseek64(file, offset, whence);
+    if (whence == 0) {
+        file->f_pos = (size_t)offset;
+        return offset;
+    }
+    return -1;
+}
+
+int vfs_ioctl(struct file *file, unsigned long request, void *arg) {
+    if (file->f_ops->ioctl)
+        return file->f_ops->ioctl(file, request, arg);
+    return -1;
+}
+
 void rootfs_init(void) {
     rootfs = (struct mount *)allocate(sizeof(struct mount));
     rootfs->mount_point = 0;
