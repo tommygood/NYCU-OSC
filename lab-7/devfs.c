@@ -314,8 +314,8 @@ static void devfs_init_ops(void) {
     fb_dev_fops.write     = fb_dev_write;
     fb_dev_fops.lseek64   = fb_dev_lseek64;
     fb_dev_fops.ioctl     = fb_dev_ioctl;
-    devfs_dir_fops.open   = uart_dev_open;
-    devfs_dir_fops.close  = uart_dev_close;
+    devfs_dir_fops.open   = 0;
+    devfs_dir_fops.close  = 0;
     devfs_dir_fops.read   = 0;
     devfs_dir_fops.write  = 0;
     devfs_dir_fops.lseek64 = 0;
