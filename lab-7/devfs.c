@@ -72,6 +72,7 @@ static int uart_dev_write(struct file *file, const void *buf, size_t len) {
 #endif
 
 #define FB_IOCTL_GET_INFO 0
+#define SEEK_SET 0
 
 struct framebuffer_info {
     unsigned int width;
@@ -240,7 +241,7 @@ static int fb_dev_write(struct file *file, const void *buf, size_t len) {
 }
 
 static long fb_dev_lseek64(struct file *file, long offset, int whence) {
-    if (whence == 0) {
+    if (whence == SEEK_SET) {
 #ifndef QEMU
         if (file->f_pos > 0 && (size_t)offset < file->f_pos)
             flush_dcache((void *)FB_BASE, (unsigned long)FB_WIDTH * FB_HEIGHT * FB_BPP);
