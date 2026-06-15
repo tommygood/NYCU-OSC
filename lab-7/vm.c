@@ -243,6 +243,11 @@ void map_pages(unsigned long *user_pgd, unsigned long va, unsigned long pa,
  */
 void free_user_pgd(unsigned long *user_pgd) {
     if (!user_pgd) return;
+
+    /* Disable interrupts to prevent sys_fork from racing on refcounts */
+    unsigned long _pgd_sie;
+    asm volatile("csrrc %0, sstatus, 2" : "=r"(_pgd_sie));
+
     /* Walk user-space entries (PGD[0..255]) */
     for (int i = 0; i < KERNEL_PGD_INDEX; i++) {
         if (!(user_pgd[i] & PTE_V)) continue;
@@ -264,6 +269,8 @@ void free_user_pgd(unsigned long *user_pgd) {
         free(pmd);
     }
     free(user_pgd);
+
+    asm volatile("csrs sstatus, %0" :: "r"(_pgd_sie & 2));
 }
 
 /*

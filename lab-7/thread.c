@@ -259,6 +259,10 @@ long sys_fork(struct trap_frame *parent_tf) {
         return -1;
     }
 
+    /* Disable interrupts to prevent kill_zombies from racing on refcounts */
+    unsigned long _fork_sie;
+    asm volatile("csrrc %0, sstatus, 2" : "=r"(_fork_sie));
+
     /* CoW: copy VMAs, share pages read-only, increment refcounts */
     for (int i = 0; i < MAX_VMAS; i++) {
         child->vmas[i] = parent->vmas[i];
@@ -290,6 +294,8 @@ long sys_fork(struct trap_frame *parent_tf) {
 
     /* Flush parent's TLB since we changed its PTEs to read-only */
     asm volatile("sfence.vma" ::: "memory");
+
+    asm volatile("csrs sstatus, %0" :: "r"(_fork_sie & 2));
 
     /* Copy parent's kernel stack */
     k_memcpy(kstack, (void *)parent->stack, STACK_SIZE);
